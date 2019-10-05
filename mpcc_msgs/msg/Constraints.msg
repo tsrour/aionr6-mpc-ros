@@ -1,0 +1,10 @@
+float32 omega_min
+float32 v_min
+float32 gamma_min
+float32 theta_min
+float32 beta_min
+float32 omega_max
+float32 v_max
+float32 gamma_max
+float32 theta_max
+float32 beta_max

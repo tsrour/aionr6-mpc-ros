@@ -1,0 +1,296 @@
+#!/usr/bin/env python
+
+import quadprog
+import numpy as np
+import math
+import rospy
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
+from gazebo_msgs.srv import *
+from gazebo_msgs.msg import ModelState
+import time
+from numba import njit, prange
+
+#########################################################################################
+def quadprog_solve_qp(P, q, G=None, h=None, A=None, b=None):
+    """Wrapper used for quadprog such that the standard QP form to be solved is:
+        Minimize (1/2)x^TPx + q^Tx (objective function)
+        subject to Gx<= h (inequality constraints)
+                   Ax = b (equality constraints)
+    """
+             
+    qp_G = .5 * (P + P.T)   # make sure P is symmetric
+    qp_a = -q
+    if A is not None:
+        qp_C = -np.vstack([A, G]).T
+        qp_b = -np.hstack([b, h])
+        meq = A.shape[0]
+    elif G is not None:  # no equality constraint
+        qp_C = -G.T
+        qp_b = -h
+        meq = 0
+    else:
+        qp_C = None
+        qp_b = None
+        meq = 0
+    return quadprog.solve_qp(qp_G, qp_a, qp_C, qp_b, meq)[0]
+#########################################################################################
+@njit
+def mpc2qp(A, B, Q, R, N, ref, x0):
+    """ Function that converts an MPC problem of the form:
+        Minimize Sum (x[k]-x[ref,k])^T.Q.(x[k]-x[ref,k]) + u[k]^T.R.u[k]
+        Subject to: Ul <= u[k] <= Uu for 1 <= k <= n
+                    Yl <= Hx[k] <= Yu for 1 <= k <= n
+                    (where u is the control inputs and x are the states)
+                    
+        To the standard QP problem of the form:
+        Minimize (1/2)x^TPx + q^Tx (objective function)
+        subject to: Gx<= h (inequality constraints)
+                    Ax = b (equality constraints)
+        
+        Inputs: - A, B state space matrices of model over the horizon
+                - Q, R Weight matrices of error and control effort respectively
+                - N: Horizon Length
+                - ref: reference vector over horizon for all states
+                - x0: initial state
+                - Constraints = (Ul, Uu, Yl, Yu, H) (over the horizon)
+                
+        Outputs: P, q, G, h corresponding to the objective function
+                 hat_A, hat_B 
+    """
+    nx = np.shape(A)[2] # Number of states
+    nu = np.shape(B)[2] # number of inputs
+    A_product = np.eye(nx)
+
+    hat_A = np.zeros((N*nx, nx))
+    hat_B = np.zeros((N*nx, N*nu))
+    hat_Q = np.zeros((N*nx, N*nx))
+    hat_R = np.zeros((N*nu, N*nu))
+    
+    # Build all the matrices
+    for k in prange(N):
+        A_product = A_product @ A[k]
+        hat_Q[nx*k:nx*(k+1), nx*k:nx*(k+1)] = Q
+        hat_R[nu*k:nu*(k+1), nu*k:nu*(k+1)] = R
+        hat_A[nx*k:nx*(k+1), 0:nx] = A_product
+        hat_B[nx*k:nx*(k+1), nu*k:nu*(k+1)] = B[k]
+    
+    for j in prange(N-1):
+        for i in prange(N-1-j):
+            hat_B[nx*(i+1+j):nx*(i+2+j), nu*i:nu*(i+1)] = hat_A[nx*j:nx*(j+1)] @ B[i]
+            
+    P = hat_B.T @ hat_Q @ hat_B + hat_R
+    e0 = hat_A @ x0-ref
+    q = (e0.T @ hat_Q @ hat_B)
+    return (P,q[0], None, None, hat_A, hat_B)
+        
+#########################################################################################
+
+class mpcController(object):
+    def __init__(self, pub, mpc_setup, weights, refs, init_values):
+        self._pub = pub
+        self._nx = mpc_setup[0]
+        self._nu = mpc_setup[1]
+        self._N = mpc_setup[2]
+        self._T = mpc_setup[3]
+        self._Q = weights[0]
+        self._R = weights[1]
+        self._xref = refs[0]
+        self._yref = refs[1]
+        self._theta_ref = refs[2]
+        self._x = init_values[0]
+        self._u = init_values[1] 
+        self._x0_delta = init_values[2]
+        self._U = init_values[3]
+        self._X = init_values[4]
+        self._iteration = 0
+        self._avg_sol_time = 0
+        
+        # Preallocate space for A and B Horizon matrices
+        self._A = np.zeros((self._N,self._nx,self._nx))
+        self._B = np.zeros((self._N,self._nx,self._nu))
+        
+        # call mpc2qp function offline at initialization to ensure numba compiles it
+        iter_refx = self._xref[0:self._N].reshape(1,self._N)-self._X.T[1:,0].reshape(1,self._N)
+        iter_refy = self._xref[0:self._N].reshape(1,self._N)-self._X.T[1:,1].reshape(1,self._N)
+        iter_ref_theta = self._theta_ref[0:self._N].reshape(1,self._N)
+        iter_ref = np.vstack([iter_refx, iter_refy, iter_ref_theta]).flatten('F')
+        iter_ref = iter_ref.reshape(self._nx*self._N,1)
+        mpc2qp(self._A, self._B, self._Q, self._R, self._N, iter_ref, self._x0_delta)
+        
+    # define the callback function, this is invoked whenever new messages are received
+    def callback(self, msg):
+        nx = self._nx
+        nu = self._nu
+        N = self._N
+        T = self._T
+        Q = self._Q
+        R = self._R
+        xref = self._xref
+        yref = self._yref
+        theta_ref = self._theta_ref
+        x0_delta = self._x0_delta
+        X = self._X
+        U = self._U
+        i = self._iteration
+        
+
+        start_time = time.time()
+        # Stop rover to give it time to compute next input
+        #twist = Twist()
+        #twist.linear.x = 0.
+        #twist.linear.y = 0.
+        #twist.linear.z = 0.
+        #twist.angular.x = 0.
+        #twist.angular.y = 0.
+        #twist.angular.z = 0.
+        #self._pub.publish(twist)
+        
+
+        # Get the x, y and theta measurements (states)
+        x_measure = msg.pose.pose.position.x
+        y_measure = msg.pose.pose.position.y
+        z_measure = msg.pose.pose.orientation.z
+        w_measure = msg.pose.pose.orientation.w
+        theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
+        x = np.vstack([x_measure, y_measure, theta_measure])
+        X[:,0] = x.flatten()
+        
+        # Calculating predicted states
+        for n in range(N):
+            X[0,n+1] = X[0,n] + T*(U[1,n]*np.cos(X[2,n]))
+            X[1,n+1] = X[1,n] + T*(U[1,n]*np.sin(X[2,n]))
+            X[2,n+1] = X[2,n] + T*(U[0,n])
+            
+        # Calculate state space linearizations
+        for n in range(N):
+            self._A[n] = np.array([[1., 0., -T*U[1,n]*np.sin(X[2,n])], 
+                                [0., 1., T*U[1,n]*np.cos(X[2,n])],  
+                                [0., 0., 1.]])
+            self._B[n] = np.array([[0., T*np.cos(X[2,n])-0.5*T*T*U[1,n]*np.sin(X[2,n])], 
+                                [0., 0.5*T*T*U[1,n]*np.cos(X[2,n]) + T*np.sin(X[2,n])], 
+                                [T, 0.]])
+          
+        # Slice reference array to horizon length and reshape to 1D
+        
+        # Track a circle
+        iter_refx = xref[i:N+i].reshape(1,N)-X.T[1:,0].reshape(1,N)
+        iter_refy = yref[i:N+i].reshape(1,N)-X.T[1:,1].reshape(1,N)
+        iter_ref_theta = theta_ref[i:N+i].reshape(1,N)
+        
+        # Track a point (comment this out later)
+        # iter_refx = 3*np.ones((1,N))-X.T[1:,0].reshape(1,N)
+        # iter_refy = 3*np.ones((1,N))-X.T[1:,1].reshape(1,N)
+        # iter_ref_theta = np.zeros((1,N))
+        
+        iter_ref = np.vstack([iter_refx, iter_refy, iter_ref_theta]).flatten('F')
+        iter_ref = iter_ref.reshape(nx*N,1)
+        
+        # Convert MPC to standard QP form
+        (P, q, G, h, hat_A, hat_B) = mpc2qp(self._A, self._B, Q, R, N, iter_ref, x0_delta)
+          
+            
+        U_delta = quadprog_solve_qp(P, q, G, h).reshape(nu*N,1)
+        X_delta = hat_B @ U_delta
+        X_delta = X_delta.reshape(N,nx).T
+        U_delta = U_delta.reshape(N,nu).T
+        X_delta = np.hstack([x0_delta,X_delta])
+            
+        # Update predicted states and inputs
+        U = U + U_delta
+        # X = X + X_delta
+        
+        u = U[:,0]
+        omega_input = u[0]
+        v_input = u[1]
+        
+        # Saturate inputs
+        # v_input = min(v_input, 1)
+        # v_input = max(v_input, -1)
+        # omega_input = min(omega_input, 4)
+        # omega_input = max(omega_input, -4)
+        
+        # Store solution for next loop iteration
+        self._U = np.hstack([U[:,1:], np.zeros((nu,1))])
+        self._X = np.hstack([x, np.zeros((nx,N))])
+        self._iteration+=1
+        
+        # Compute solving time and average solving time
+        sol_time = time.time()-start_time
+        self._avg_sol_time = ((self._avg_sol_time*(self._iteration-1))+sol_time)/self._iteration
+        
+        # Apply control input to rover
+        twist = Twist()
+        twist.linear.x = v_input
+        twist.linear.y = 0
+        twist.linear.z = 0
+        twist.angular.x = 0
+        twist.angular.y = 0
+        twist.angular.z = omega_input
+        self._pub.publish(twist)
+        rospy.loginfo('Solving Time: ({})'.format(self._avg_sol_time)) # this is how to print 
+        
+def main():
+    # MPC setup: Here we are setting up the MPC problem
+    nx = 3 # Number of states
+    nu = 2 # Number of inputs
+    N = 20 # Horizon
+    T = 0.1 # Sampling Period
+    mpc_setup = (nx, nu, N, T) ##############
+    
+    # Define Error and Control Effort Weightings
+    Q = 100*np.eye(nx)
+    R = np.eye(nu)
+    Q[2,2] = 0
+    weights = (Q, R) #####################
+    
+    # Simulation setup:
+    start_time =  0. # seconds
+    end_time = 20. # seconds
+    times = np.arange(end_time, step = T) # row vector
+
+    # Define trajectory that you want as the reference (circle)
+    ref_times = np.arange(start=end_time, stop=end_time+N*T, step=T) # row vector
+    ref_times = np.hstack([times, ref_times]) # row vector
+    xref = 5*np.cos(2.*math.pi*(1./end_time)*ref_times) # row vector
+    yref = 5*np.sin(2.*math.pi*(1./end_time)*ref_times) # row vector
+    theta_ref = np.zeros(np.shape(ref_times)) # row vector
+    refs = (xref, yref, theta_ref) ##################
+    
+    # Define initial states and initial inputs (column vectors)
+    x = np.vstack([5., 0., math.pi/2])
+    u = np.vstack([0., 0.]) # column vector
+    x0_delta = np.vstack([0., 0., 0.])
+    
+    # Define initial guesses for LTV
+    U = np.tile(u, N) # 2xN matrix
+    X = np.tile(x, N+1) # 3xN+1 matrix
+    init_values = (x, u, x0_delta, U, X) ###############
+    
+    # Initialize Rover Position on Gazebo
+    rospy.wait_for_service('/gazebo/set_model_state')
+    try:
+        set_model_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
+        model_state = ModelState()
+        model_state.model_name = "r1_sim"
+        model_state.pose.position.x = x[0]
+        model_state.pose.position.y = x[1]
+        model_state.pose.orientation.z = math.sin(x[2]/2)
+        model_state.pose.orientation.w = math.cos(x[2]/2)
+        print(set_model_state(model_state))
+    except rospy.ServiceException:
+        print("Service call failed")
+        
+    # Initialize the ROS node
+    rospy.init_node('MPC_Controller')
+    
+    # Define the publisher
+    pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist, queue_size=1)
+    controller = mpcController(pub, mpc_setup, weights, refs, init_values)
+    
+    # subscribe to the /odom topic and run callback function
+    rospy.Subscriber("/odom", Odometry, controller.callback) 
+    rospy.spin() # runs forever
+
+if __name__ == '__main__':
+    main()

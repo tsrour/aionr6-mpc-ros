@@ -1,0 +1,242 @@
+<?xml version="1.0"?>
+
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="r1_sim">
+	
+  <!-- Importing external urdf/xacros. -->
+	<xacro:include filename="$(find aion_r1_description)/urdf/materials.urdf.xacro" />
+  <xacro:include filename="$(find aion_r1_gazebo)/models/r1_sim.gazebo" />
+
+  <!-- Defining macros. -->
+	<xacro:macro name="wheel" params="prefix reflect_x:=1 reflect_y:=1 mimic:=false">
+		<xacro:if value="${prefix[0]=='r'}">
+			<xacro:property name="reflect_y" value="-1" />
+		</xacro:if>
+		<xacro:if value="${prefix[1]=='b'}">
+			<xacro:property name="reflect_x" value="-1" />
+			<xacro:property name="mimic" value="true" />
+		</xacro:if>
+		<link name="${prefix}_wheel_link">
+			<inertial>
+				<mass value="0.414" />
+				<inertia
+					ixx="0.00097298"
+	        ixy="0"
+	        ixz="0"
+	        iyy="0.00132536"
+	        iyz="0"
+	        izz="0.00097299" />
+	    	</inertial>
+	    	<visual>
+	    		<geometry>
+	    			<mesh filename="package://aion_r1_description/meshes/wheel_link.STL" />
+				</geometry>
+				<material name="black" />
+			</visual>
+      <collision>
+        <geometry>
+          <mesh filename="package://aion_r1_description/meshes/wheel_link_simple.STL" />
+        </geometry>
+      </collision>
+		</link>
+		<joint
+			name="${prefix}_wheel_joint"
+			type="continuous">
+			<origin
+				xyz="${0.15 * reflect_x} ${0.16317 * reflect_y} 0.0215"
+				rpy="0 0 0" />
+			<parent link="base_link" />
+			<child link="${prefix}_wheel_link" />
+      <axis xyz="0 1 0" />
+			<xacro:if value="${mimic}">
+				<mimic joint="${prefix[0]}f_wheel_joint" />
+			</xacro:if>
+		</joint>
+	</xacro:macro>
+  <xacro:macro name="antenna" params="prefix reflect:=1">
+    <xacro:if value="${prefix=='r'}">
+      <xacro:property name="reflect" value="-1" />
+    </xacro:if>
+    <link name="${prefix}_antenna_link">
+      <inertial>
+        <origin
+          xyz="0 0 0.04965291"
+          rpy="0 0 0" />
+        <mass
+          value="0.01" />
+        <inertia
+          ixx="9.5e-06"
+          ixy="0"
+          ixz="0"
+          iyy="9.5e-06"
+          iyz="0"
+          izz="1E-7" />
+      </inertial>
+      <visual>
+        <geometry>
+          <mesh filename="package://aion_r1_description/meshes/antenna_link.STL" />
+        </geometry>
+        <material name="black" />
+      </visual>
+    </link>
+    <joint
+      name="${prefix}_antenna_joint"
+      type="fixed">
+      <origin
+        xyz="-0.1565 ${0.0762 * reflect} 0"
+        rpy="0 0 0" />
+      <parent
+        link="top_link" />
+      <child
+        link="${prefix}_antenna_link" />
+      <axis
+        xyz="0 0 1" />
+    </joint>
+  </xacro:macro>
+
+  <!-- Defining model links. -->
+	<link name="odom" />
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.00019948 0 0.05685679"
+        rpy="0 0 0" />
+      <mass
+        value="3.12" />
+      <inertia
+        ixx="0.01468727"
+        ixy="0"
+        ixz="-1.96e-06"
+        iyy="0.04415555"
+        iyz="0"
+        izz="0.05241402" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://aion_r1_description/meshes/chassis_link.STL" />
+      </geometry>
+      <material name="gray" />
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0.15"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.455 0.426 0.32" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="top_link">
+    <inertial>
+      <origin
+        xyz="-1.356e-05 0 -0.00296339"
+        rpy="0 0 0" />
+      <mass
+        value="0.63" />
+      <inertia
+        ixx="0.00607143"
+        ixy="-1e-08"
+        ixz="2e-08"
+        iyy="0.0091304"
+        iyz="-1e-08"
+        izz="0.01516701" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://aion_r1_description/meshes/top_link.STL" />
+      </geometry>
+      <material name="white" />
+    </visual>
+  </link>
+  <link
+    name="battery_link">
+    <inertial>
+      <origin
+        xyz="0.00355981 0 0.0084182"
+        rpy="0 0 0" />
+      <mass
+        value="0.488" />
+      <inertia
+        ixx="0.00016563"
+        ixy="0"
+        ixz="3.86e-06"
+        iyy="0.00091175"
+        iyz="0"
+        izz="0.00105049" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://aion_r1_description/meshes/battery_link.STL" />
+      </geometry>
+      <material name="black" />
+    </visual>
+  </link>
+  <link
+    name="housing_link">
+    <inertial>
+      <origin
+        xyz="-0.0103579 0 0.01892497"
+        rpy="0 0 0" />
+      <mass
+        value="0.04" />
+      <inertia
+        ixx="4.349e-05"
+        ixy="0"
+        ixz="-1.89e-06"
+        iyy="4.241e-05"
+        iyz="0"
+        izz="7.779e-05" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://aion_r1_description/meshes/housing_link.STL" />
+      </geometry>
+      <material name="black" />
+    </visual>
+  </link>
+
+  <!-- Defining model joints. -->
+  <joint
+    name="fixed_base_joint"
+    type="fixed">
+    <parent link="odom" />
+    <child link="base_link" />
+  </joint>
+  <joint
+    name="fixed_top_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 0.114485752303901"
+      rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="top_link" />
+  </joint>
+  <joint
+    name="fixed_battery_joint"
+    type="fixed">
+    <origin
+      xyz="-0.0930197544779129 -0.00012769656788774 0"
+      rpy="0 0 0" />
+    <parent link="top_link" />
+    <child link="battery_link" />
+  </joint>
+  <joint
+    name="fixed_housing_joint"
+    type="fixed">
+    <origin
+      xyz="0.03472949777154 0 0"
+      rpy="0 0 0" />
+    <parent link="top_link" />
+    <child link="housing_link" />
+  </joint>
+
+  <!-- Building links/joints from macros. -->
+  <xacro:antenna prefix="l" />
+  <xacro:antenna prefix="r" />
+	<xacro:wheel prefix="lf" />
+	<xacro:wheel prefix="rf" />
+	<xacro:wheel prefix="lb" />
+	<xacro:wheel prefix="rb" />
+
+</robot>
