@@ -1,0 +1,271 @@
+#!/usr/bin/env python
+
+import numpy as np
+import matplotlib.pyplot as plt
+# import scipy.io
+import ltv_contouring_mpc as ltvcmpc
+import math
+import rospy
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Pose
+from gazebo_msgs.srv import *
+from gazebo_msgs.msg import ModelState
+import time
+
+# Constant terms
+N_STATES = 4
+N_INPUTS = 3
+
+class mpcController(object):
+    def __init__(self, pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points):
+        self._pub = pub
+        self._weights = weights
+        self._constraints = constraints
+        self._xi_curr = xi_curr
+        self._u_guess = u_guess
+        self._N = N
+        self._Ts = Ts
+        self._track_spline = track_spline
+        self._M = M
+        self._track_points = track_points 
+        self._initialized = False
+        
+        # track iterations
+        self._i = 0
+        self._avg_sol_time = 0
+        
+        # PID values initialization
+        self._theta_derr = 0
+        self._theta_dderr = 0
+        self._pos_derr = 0
+        self._pos_dderr = 0
+    
+    # define the PID calculation function
+    def PID_calc(self, x_err, y_err, theta_measure, delta_x, delta_y):
+    
+        # PID gains
+        Kp_theta = 3
+        Kp_pos = 2
+        Ki_theta = 2
+        Ki_pos = 2
+        Kd_theta = 0.01
+        Kd_pos = 0.01
+        
+        # Define errors
+        pos_err = math.sqrt(x_err**2+y_err**2)
+        theta_ref = math.atan2(y_err, x_err)
+        if (pos_err < 0.1): # at setpoint, rotate to correct starting angle
+            vel_dir = 0.0
+            theta_err = math.atan2(delta_y, delta_x) - theta_measure
+            if abs(theta_err) > math.pi:
+                theta_err = np.sign(theta_err)*(2*math.pi - abs(theta_err))
+            if theta_err < 0.05:
+                self._initialized = True
+        else:
+            theta_err = theta_ref - theta_measure
+        
+        
+        if (abs(theta_err) > 0.05): # rotate before moving towards setpoint
+            pos_err = 0
+            vel_dir = 0.0  
+        elif abs(theta_err) > math.pi/2: # better to move backwards towards setpoint
+            theta_err = np.sign(theta_err)*(math.pi - abs(theta_err))
+            vel_dir = -1.0
+        else:
+            vel_dir = 1.0
+
+        # Define the individual error values of each PID element
+        pos_P_err = pos_err - self._pos_derr
+        pos_I_err = pos_err
+        pos_D_err = self._pos_derr - self._pos_dderr
+        theta_P_err = theta_err - self._theta_derr
+        theta_I_err = theta_err
+        theta_D_err = self._theta_derr - self._theta_dderr
+        
+        # Calculate input values 
+        omega_input = Kp_theta*theta_P_err + Ki_theta*theta_I_err + Kd_theta*theta_D_err
+        v_input = vel_dir*(Kp_pos*pos_P_err + Ki_pos*pos_I_err + Kd_pos*pos_D_err)
+        
+        # Saturate inputs to avoid moving too fast
+        omega_input = min(omega_input, 0.7)
+        omega_input = max(omega_input, -0.7)
+        v_input = min(v_input, 0.4)
+        v_input = max(v_input, -0.4)
+        rospy.loginfo('Inputs: ({}, {})'.format(v_input, omega_input))
+        rospy.loginfo('Theta_measure: {}'.format(theta_measure))
+        self._theta_dderr = self._theta_derr
+        self._theta_derr = theta_err
+        self._pos_dderr = self._pos_derr
+        self._pos_derr = pos_err
+        
+        
+        return (omega_input, v_input)
+        
+    # define the callback function, this is invoked whenever new messages are received
+    def callback(self, msg):
+        
+        start_time = time.time()
+
+        # Define constant parameters (do not change between iterations)
+        weights = self._weights
+        constraints = self._constraints 
+        N = self._N
+        Ts = self._Ts
+        track_spline = self._track_spline
+        M = self._M
+                                      
+        # Get the x, y and theta measurements (states) and update xi_curr accordingly
+        x_measure = msg.position.x
+        y_measure = msg.position.y
+        z_measure = msg.orientation.z
+        w_measure = msg.orientation.w
+        theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
+        
+        ## Go to proper initial position using PID before starting
+        x_err = self._track_points['path'][0,0] - x_measure
+        y_err = self._track_points['path'][1,0] - y_measure
+        delta_y = self._track_points['path'][1,1] - self._track_points['path'][1,0]
+        delta_x = self._track_points['path'][0,1] - self._track_points['path'][0,0]
+        if not self._initialized:
+            (omega_input, v_input) = self.PID_calc(x_err, y_err, theta_measure, delta_x, delta_y)
+                
+            # Apply control input to rover
+            twist = Twist()
+            twist.linear.x = 0
+            twist.linear.y = v_input/1.5
+            twist.linear.z = 0
+            twist.angular.x = 0
+            twist.angular.y = 0
+            twist.angular.z = omega_input
+            self._pub.publish(twist)
+            return
+        
+        self._xi_curr[0,0] = x_measure
+        self._xi_curr[1,0] = y_measure
+        self._xi_curr[2,0] = theta_measure
+        
+        # Solve the MPC problem using the LTV approach
+        for j in range(0, self._M):
+            sol = ltvcmpc.unicycle_raw_solver(weights, constraints, self._xi_curr, self._u_guess, N,
+                                      Ts, track_spline)
+        
+        # Update xi_curr for use in next iteration
+        self._xi_curr = np.array(ltvcmpc.unicycle_raw_taylor_order2_next_step(self._xi_curr, sol['u'][:,1], Ts))
+        
+        # Update guesses for u
+        self._u_guess = np.hstack([sol['u'][:,1:], np.zeros((N_INPUTS,1))])
+        
+        # Obtain control inputs to feed the rover
+        v_input = sol['u'][1,0]
+        omega_input = sol['u'][0,0]
+
+        # Apply control input to rover
+        twist = Twist()
+        twist.linear.x = 0
+        twist.linear.y = v_input/2.0
+        twist.linear.z = 0
+        twist.angular.x = 0
+        twist.angular.y = 0
+        twist.angular.z = omega_input
+        self._pub.publish(twist)
+        
+        # increment simulation iterations
+        self._i +=1
+        
+        # Compute solving time and average solving time
+        sol_time = time.time()-start_time
+        self._avg_sol_time = ((self._avg_sol_time*(self._i-1))+sol_time)/self._i
+        
+        # Print control inputs for debugging purposes
+        rospy.loginfo('Avg Solving Time: ({})'.format(self._avg_sol_time)) 
+        
+def main():
+    # Path following using ltv contouring mpc
+    
+    # Load track and check if it has been loaded properly
+    track_points = ltvcmpc.get_track()
+    print(track_points)
+    print(track_points['center'][0,0])
+    print(track_points['center'][1,0])
+    # Generate spline for path, center and outer of track
+    cycles = 2
+    track_spline = ltvcmpc.generate_track_spline(track_points,cycles)
+    
+    N = 30 # Set horizon
+    
+    # Simulation settings
+    Ts = 0.1 # Sampling period
+    M = 1 # Number of iterations to repeat LTV for single time
+
+    # Weight matrices
+    weights = {
+        'Q': 100*np.diag([1.0, 1.0]),
+        'q': 3.0,
+        'R': 10*np.diag([0.1, 1.0, 1.0])
+        }
+
+    # Load splines for path and track
+    beta_limit = track_spline['breaks'][0,-1]
+    
+    # Constraints
+    constraints = {
+        'omega_min': -1.0,
+        'v_min': 0,
+        'gamma_min': 0,
+        'theta_min': -np.inf,
+        'beta_min': 0,
+        'omega_max': 1.0,
+        'v_max': 1.0,
+        'gamma_max': 1,
+        'theta_max': np.inf,
+        'beta_max': beta_limit-5
+        }
+
+
+    # Initial states/inputs
+    init_omega = 0.0
+    init_gamma = 0.0
+    init_v = 0.0
+    init_beta = 0.0
+
+
+
+    # Set simulation time
+    start_time = 0
+    end_time = 60.0
+    times = np.arange(start_time, end_time, Ts)
+    
+    # Initialise inputs
+    u_curr = np.vstack(np.array([init_omega, init_v, init_gamma])) # Guess for 
+    # initial u
+    u_guess = np.tile(u_curr, [1, N]) # Solved inputs over horizon
+
+
+    # Initialise states
+    xi_curr = np.vstack(np.array([track_points['path'][0,0],
+                                  track_points['path'][1,0],
+                                  math.atan2(track_points['path'][1,1]-track_points['path'][1,0],
+                                             track_points['path'][0,1]-track_points['path'][0,0]), 
+                                  init_beta])) # Initial state
+    
+    # Determine initial guesses for inputs
+    for n in range(2, N+1):
+        sol = ltvcmpc.unicycle_raw_solver(weights, constraints, xi_curr, u_guess[:,0:n], n,
+                                          Ts, track_spline)
+        # Update guesses for u
+        u_guess[:,0:n] = sol['u']
+        
+    # Initialize the ROS node
+    rospy.init_node('MPC_Controller')
+    
+    # Define the publisher
+    pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
+    controller = mpcController(pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points)
+    
+    # subscribe to the /odom topic and run callback function
+    rospy.Subscriber("/rover/states", Pose, controller.callback) 
+    rospy.spin() # runs forever
+
+if __name__ == '__main__':
+    main()
