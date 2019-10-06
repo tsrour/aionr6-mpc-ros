@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Sep 26 18:23:17 2019
+
+@author: tony
+"""
+import matplotlib.pyplot as plt
+import rospy
+import ltv_contouring_mpc as ltvcmpc
+import numpy as np
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
+from mpcc_msgs.msg import MPCC_Params
+
+history_x = []
+history_y = []
+history_v = []
+history_theta = []
+history_omega = []
+history_time_vel = []
+history_time_odom = []
+
+def paramCallback(msg):
+    print(msg.weights.q)
+
+def velCallback(msg):
+    if len(history_time_vel) == len(history_time_odom):
+        v_cmd = msg.linear.x
+        omega_cmd = msg.angular.z
+        history_v.append(v_cmd)
+        history_omega.append(omega_cmd)
+        iteration = len(history_time_vel)
+        history_time_vel.append(iteration+1)
+	
+def odomCallback(msg):
+    if len(history_time_vel) == len(history_time_odom)+1:
+        # Get the x, y and theta measurements (states)
+        x_measure = msg.pose.pose.position.x
+        y_measure = msg.pose.pose.position.y
+        z_measure = msg.pose.pose.orientation.z
+        w_measure = msg.pose.pose.orientation.w
+        theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
+            
+        history_x.append(x_measure)
+        history_y.append(y_measure)
+        history_theta.append(theta_measure)
+        iteration = len(history_time_odom)
+        history_time_odom.append(iteration+1)
+    
+def main():
+    # Filename for track
+    track_points_filename = 'YP2_capstone_ws/src/rover_simulation/scripts/data/track_optimal.mat'
+    
+    # Load track 
+    track_points = ltvcmpc.load_track(track_points_filename)
+    
+    # Initialize the ROS node
+    rospy.init_node('Data_Plotter')
+
+    # subscribe to the /odom topic and run callback function
+    rospy.Subscriber("/odom", Odometry, odomCallback) 
+    
+    # subscribe to the /odom topic and run callback function
+    rospy.Subscriber("/cmd_vel_mux/input/teleop", Twist, velCallback) 
+	# subscribe to the /odom topic and run callback function
+    rospy.Subscriber("/rover/mpcc_params", MPCC_Params, paramCallback) 
+
+    rospy.spin() # runs forever
+    
+    fig1 = plt.figure()
+    ax = fig1.add_subplot(111)
+    ax.plot(track_points['outer'][0,:], track_points['outer'][1,:], 'k')
+    ax.plot(track_points['inner'][0,:], track_points['inner'][1,:], 'k')
+    try:
+        im = ax.scatter(history_x, history_y, c=history_v, cmap = 'RdYlGn')
+    except ValueError:
+        im = ax.scatter(history_x, history_y, c=history_v[:-1], cmap = 'RdYlGn')
+    cbar = fig1.colorbar(im, ax=ax)
+    cbar.set_label('Velocity', rotation=0)
+    ax.title.set_text('Path-Velocity Colormap')
+    fig2 = plt.figure()
+    ax1 = fig2.add_subplot(221)
+    ax1.scatter(history_time_odom, history_x)
+    ax1.title.set_text('Rover x Position')
+    ax2 = fig2.add_subplot(222)
+    ax2.scatter(history_time_odom, history_y)
+    ax2.title.set_text('Rover y Position')
+    ax3 = fig2.add_subplot(223)
+    ax3.scatter(history_time_odom, history_theta)
+    ax3.title.set_text('Rover Orientation')
+    fig3 = plt.figure()
+    ax4 = fig3.add_subplot(211)
+    ax4.scatter(history_time_vel, history_v)
+    ax4.title.set_text('Rover Linear Velocity')
+    ax5 = fig3.add_subplot(212)
+    ax5.scatter(history_time_vel, history_omega)
+    ax5.title.set_text('Rover Angular Velocity')
+    fig1.savefig('YP2_capstone_ws/src/rover_simulation/plots/heatmap.png')
+    fig2.savefig('YP2_capstone_ws/src/rover_simulation/plots/states.png')
+    fig3.savefig('YP2_capstone_ws/src/rover_simulation/plots/inputs.png')
+    
+if __name__ == '__main__':
+    main()
+        

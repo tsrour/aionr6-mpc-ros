@@ -127,7 +127,7 @@ def main():
     # Path following using ltv contouring mpc
     
     # Filename for track
-    track_points_filename = 'YP2_capstone_ws/src/rover_simulation/scripts/data/track_optimal.mat'
+    track_points_filename = '../YP2_capstone_ws/src/rover_simulation/scripts/data/track_optimal.mat'
     
     # Load track and check if it has been loaded properly
     track_points = ltvcmpc.load_track(track_points_filename)
