@@ -1,0 +1,33 @@
+plugin_blacklist:
+- 3dr_radio
+- actuator_control
+# command
+- dummy
+# ftp
+- global_position
+- imu_pub
+- local_position
+- param
+- rc_io
+- safety_area
+- setpoint_accel
+- setpoint_attitude
+- setpoint_position
+- vfr_hud
+- waypoint
+- adsb
+- debug_value
+- distance_sensor
+- image_pub
+- fake_gps
+- landing_target
+- mocap_pose_estimate
+- odom
+- px4flow
+- vision_pose_estimate
+- vision_speed_estimate
+- vibration
+- wheel_odometry
+
+plugin_whitelist: []
+#- 'sys_*'
