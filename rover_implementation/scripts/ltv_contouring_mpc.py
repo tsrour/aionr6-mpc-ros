@@ -174,10 +174,10 @@ def load_track(filename):
     mat = scipy.io.loadmat(filename)
     center = 0.5*(mat['inner'] + mat['outer'])
     track = {
-            'inner': 10*mat['inner'],
-            'outer': 10*mat['outer'],
-            'path': 10*mat['path'],
-            'center': 10*center
+            'inner': mat['inner'],
+            'outer': mat['outer'],
+            'path': mat['path'],
+            'center': center
             }
     return track
 

@@ -1,0 +1,11 @@
+<launch>
+  <node
+    name="mpcc_controller"
+    pkg="rover_implementation"
+    type="mpcc_camera_gentrack" />
+
+    <node
+    name="data_plotter"
+    pkg="rover_implementation"
+    type="data_plotter" />
+</launch>

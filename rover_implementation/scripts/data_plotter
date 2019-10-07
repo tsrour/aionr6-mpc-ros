@@ -13,6 +13,8 @@ import numpy as np
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from mpcc_msgs.msg import MPCC_Params
+import os
+from datetime import datetime
 
 history_x = []
 history_y = []
@@ -23,7 +25,8 @@ history_time_vel = []
 history_time_odom = []
 
 def paramCallback(msg):
-    print(msg.weights.q)
+    global mpcc_params 
+    mpcc_params = str(msg)
 
 def velCallback(msg):
     if len(history_time_vel) == len(history_time_odom):
@@ -51,7 +54,7 @@ def odomCallback(msg):
     
 def main():
     # Filename for track
-    track_points_filename = 'YP2_capstone_ws/src/rover_simulation/scripts/data/track_optimal.mat'
+    track_points_filename = '../YP2_capstone_ws/src/rover_implementation/scripts/data/track_impl.mat'
     
     # Load track 
     track_points = ltvcmpc.load_track(track_points_filename)
@@ -69,6 +72,13 @@ def main():
 
     rospy.spin() # runs forever
     
+    now = datetime.now()
+    date_time = now.strftime("%d-%m-%Y, %H:%M:%S")
+
+    plot_folder_path = "../YP2_capstone_ws/src/rover_implementation/plots/" + date_time
+
+    os.mkdir(plot_folder_path)
+
     fig1 = plt.figure()
     ax = fig1.add_subplot(111)
     ax.plot(track_points['outer'][0,:], track_points['outer'][1,:], 'k')
@@ -97,10 +107,13 @@ def main():
     ax5 = fig3.add_subplot(212)
     ax5.scatter(history_time_vel, history_omega)
     ax5.title.set_text('Rover Angular Velocity')
-    fig1.savefig('YP2_capstone_ws/src/rover_simulation/plots/heatmap.png')
-    fig2.savefig('YP2_capstone_ws/src/rover_simulation/plots/states.png')
-    fig3.savefig('YP2_capstone_ws/src/rover_simulation/plots/inputs.png')
+    fig1.savefig(plot_folder_path + "/colormap.png")
+    fig2.savefig(plot_folder_path + "/states.png")
+    fig3.savefig(plot_folder_path + "/inputs.png")
     
+    param_filname = plot_folder_path + "/mpcc_params.txt"
+    param_file = open(param_filname, "w+")
+    param_file.write(mpcc_params)
 if __name__ == '__main__':
     main()
         

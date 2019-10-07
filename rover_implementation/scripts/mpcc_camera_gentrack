@@ -12,14 +12,16 @@ from geometry_msgs.msg import Pose
 from gazebo_msgs.srv import *
 from gazebo_msgs.msg import ModelState
 import time
+from mpcc_msgs.msg import MPCC_Params
 
 # Constant terms
 N_STATES = 4
 N_INPUTS = 3
 
 class mpcController(object):
-    def __init__(self, pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points):
-        self._pub = pub
+    def __init__(self, vel_pub, param_pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points):
+        self._param_pub = param_pub
+        self._vel_pub = vel_pub
         self._weights = weights
         self._constraints = constraints
         self._xi_curr = xi_curr
@@ -101,7 +103,27 @@ class mpcController(object):
         
         
         return (omega_input, v_input)
-        
+    
+    def formatMpccParams(self):
+        mpcc_params = MPCC_Params()
+        mpcc_params.weights.Q = [self._weights['Q'][0,0], self._weights['Q'][1,1]]
+        mpcc_params.weights.q = self._weights['q']
+        mpcc_params.weights.R = [self._weights['R'][0,0], self._weights['R'][1,1], self._weights['R'][2,2]]
+        mpcc_params.constraints.omega_min = self._constraints['omega_min']
+        mpcc_params.constraints.v_min = self._constraints['v_min']
+        mpcc_params.constraints.gamma_min = self._constraints['gamma_min']
+        mpcc_params.constraints.theta_min = self._constraints['theta_min']
+        mpcc_params.constraints.beta_min = self._constraints['beta_min']
+        mpcc_params.constraints.omega_max = self._constraints['omega_max']
+        mpcc_params.constraints.v_max = self._constraints['v_max']
+        mpcc_params.constraints.gamma_max = self._constraints['gamma_max']
+        mpcc_params.constraints.theta_max = self._constraints['theta_max']
+        mpcc_params.constraints.beta_max = self._constraints['beta_max']
+        mpcc_params.horizon = self._N
+        mpcc_params.Ts = self._Ts
+        mpcc_params.avg_solve_time = self._avg_sol_time
+        return mpcc_params
+
     # define the callback function, this is invoked whenever new messages are received
     def callback(self, msg):
         
@@ -138,7 +160,7 @@ class mpcController(object):
             twist.angular.x = 0
             twist.angular.y = 0
             twist.angular.z = omega_input
-            self._pub.publish(twist)
+            self._vel_pub.publish(twist)
             return
         
         self._xi_curr[0,0] = x_measure
@@ -168,7 +190,7 @@ class mpcController(object):
         twist.angular.x = 0
         twist.angular.y = 0
         twist.angular.z = omega_input
-        self._pub.publish(twist)
+        self._vel_pub.publish(twist)
         
         # increment simulation iterations
         self._i +=1
@@ -177,6 +199,10 @@ class mpcController(object):
         sol_time = time.time()-start_time
         self._avg_sol_time = ((self._avg_sol_time*(self._i-1))+sol_time)/self._i
         
+        # Publish relevent data to MPCC_Param Topic 
+        mpcc_params = self.formatMpccParams()
+        self._param_pub.publish(mpcc_params)
+
         # Print control inputs for debugging purposes
         rospy.loginfo('Avg Solving Time: ({})'.format(self._avg_sol_time)) 
         
@@ -260,8 +286,9 @@ def main():
     rospy.init_node('MPC_Controller')
     
     # Define the publisher
-    pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
-    controller = mpcController(pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points)
+    vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
+    param_pub = rospy.Publisher('/rover/mpcc_params', MPCC_Params, queue_size=1)
+    controller = mpcController(vel_pub, param_pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points)
     
     # subscribe to the /odom topic and run callback function
     rospy.Subscriber("/rover/states", Pose, controller.callback) 
