@@ -15,7 +15,7 @@ from geometry_msgs.msg import Twist
 from mpcc_msgs.msg import MPCC_Params
 import os
 from datetime import datetime
-
+from geometry_msgs.msg import Pose
 history_x = []
 history_y = []
 history_v = []
@@ -63,10 +63,10 @@ def main():
     rospy.init_node('Data_Plotter')
 
     # subscribe to the /odom topic and run callback function
-    rospy.Subscriber("/odom", Odometry, odomCallback) 
+    rospy.Subscriber("/rover/states", Pose, odomCallback) 
     
     # subscribe to the /odom topic and run callback function
-    rospy.Subscriber("/cmd_vel_mux/input/teleop", Twist, velCallback) 
+    rospy.Subscriber("/mavros/setpoint_velocity/cmd_vel_unstamped", Twist, velCallback) 
 	# subscribe to the /odom topic and run callback function
     rospy.Subscriber("/rover/mpcc_params", MPCC_Params, paramCallback) 
 
@@ -88,25 +88,25 @@ def main():
     except ValueError:
         im = ax.scatter(history_x, history_y, c=history_v[:-1], cmap = 'RdYlGn')
     cbar = fig1.colorbar(im, ax=ax)
-    cbar.set_label('Velocity', rotation=0)
-    ax.title.set_text('Path-Velocity Colormap')
+    #cbar.set_label('Velocity', rotation=0)
+    #ax.title.set_text('Path-Velocity Colormap')
     fig2 = plt.figure()
     ax1 = fig2.add_subplot(221)
     ax1.scatter(history_time_odom, history_x)
-    ax1.title.set_text('Rover x Position')
+    #ax1.title.set_text('Rover x Position')
     ax2 = fig2.add_subplot(222)
     ax2.scatter(history_time_odom, history_y)
-    ax2.title.set_text('Rover y Position')
+    #ax2.title.set_text('Rover y Position')
     ax3 = fig2.add_subplot(223)
     ax3.scatter(history_time_odom, history_theta)
-    ax3.title.set_text('Rover Orientation')
+    #ax3.title.set_text('Rover Orientation')
     fig3 = plt.figure()
     ax4 = fig3.add_subplot(211)
     ax4.scatter(history_time_vel, history_v)
-    ax4.title.set_text('Rover Linear Velocity')
+    #ax4.title.set_text('Rover Linear Velocity')
     ax5 = fig3.add_subplot(212)
     ax5.scatter(history_time_vel, history_omega)
-    ax5.title.set_text('Rover Angular Velocity')
+    #ax5.title.set_text('Rover Angular Velocity')
     fig1.savefig(plot_folder_path + "/colormap.png")
     fig2.savefig(plot_folder_path + "/states.png")
     fig3.savefig(plot_folder_path + "/inputs.png")
