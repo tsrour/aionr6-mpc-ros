@@ -11,7 +11,7 @@ from geometry_msgs.msg import Pose
 def main():
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-    IP_address = '10.42.0.239' 
+    IP_address = '10.42.0.90' 
     Port = 8081
 
     # Wait till server goes online

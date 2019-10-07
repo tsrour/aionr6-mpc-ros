@@ -30,7 +30,7 @@ def paramCallback(msg):
 
 def velCallback(msg):
     if len(history_time_vel) == len(history_time_odom):
-        v_cmd = msg.linear.x
+        v_cmd = msg.linear.y*1.5
         omega_cmd = msg.angular.z
         history_v.append(v_cmd)
         history_omega.append(omega_cmd)
@@ -40,10 +40,10 @@ def velCallback(msg):
 def odomCallback(msg):
     if len(history_time_vel) == len(history_time_odom)+1:
         # Get the x, y and theta measurements (states)
-        x_measure = msg.pose.pose.position.x
-        y_measure = msg.pose.pose.position.y
-        z_measure = msg.pose.pose.orientation.z
-        w_measure = msg.pose.pose.orientation.w
+        x_measure = msg.position.x
+        y_measure = msg.position.y
+        z_measure = msg.orientation.z
+        w_measure = msg.orientation.w
         theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
             
         history_x.append(x_measure)
@@ -54,7 +54,7 @@ def odomCallback(msg):
     
 def main():
     # Filename for track
-    track_points_filename = '../YP2_capstone_ws/src/rover_implementation/scripts/data/track_impl.mat'
+    track_points_filename = '../YP2_capstone_ws/src/rover_implementation/scripts/data/track_impl_optimal.mat'
     
     # Load track 
     track_points = ltvcmpc.load_track(track_points_filename)
@@ -83,6 +83,7 @@ def main():
     ax = fig1.add_subplot(111)
     ax.plot(track_points['outer'][0,:], track_points['outer'][1,:], 'k')
     ax.plot(track_points['inner'][0,:], track_points['inner'][1,:], 'k')
+    ax.plot(track_points['path'][0,:], track_points['path'][1,:], 'b--')
     try:
         im = ax.scatter(history_x, history_y, c=history_v, cmap = 'RdYlGn')
     except ValueError:
@@ -92,20 +93,20 @@ def main():
     #ax.title.set_text('Path-Velocity Colormap')
     fig2 = plt.figure()
     ax1 = fig2.add_subplot(221)
-    ax1.scatter(history_time_odom, history_x)
+    ax1.scatter(history_time_odom, history_x, marker='.')
     #ax1.title.set_text('Rover x Position')
     ax2 = fig2.add_subplot(222)
-    ax2.scatter(history_time_odom, history_y)
+    ax2.scatter(history_time_odom, history_y, marker='.')
     #ax2.title.set_text('Rover y Position')
     ax3 = fig2.add_subplot(223)
-    ax3.scatter(history_time_odom, history_theta)
+    ax3.scatter(history_time_odom, history_theta, marker='.')
     #ax3.title.set_text('Rover Orientation')
     fig3 = plt.figure()
     ax4 = fig3.add_subplot(211)
-    ax4.scatter(history_time_vel, history_v)
+    ax4.scatter(history_time_vel, history_v, marker='.')
     #ax4.title.set_text('Rover Linear Velocity')
     ax5 = fig3.add_subplot(212)
-    ax5.scatter(history_time_vel, history_omega)
+    ax5.scatter(history_time_vel, history_omega, marker='.')
     #ax5.title.set_text('Rover Angular Velocity')
     fig1.savefig(plot_folder_path + "/colormap.png")
     fig2.savefig(plot_folder_path + "/states.png")
@@ -114,6 +115,8 @@ def main():
     param_filname = plot_folder_path + "/mpcc_params.txt"
     param_file = open(param_filname, "w+")
     param_file.write(mpcc_params)
+    param_file.write("/n lap time: " + str(history_time_odom[-1]))
+
 if __name__ == '__main__':
     main()
         

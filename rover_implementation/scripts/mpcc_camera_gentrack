@@ -155,7 +155,7 @@ class mpcController(object):
             # Apply control input to rover
             twist = Twist()
             twist.linear.x = 0
-            twist.linear.y = v_input/1.5
+            twist.linear.y = v_input
             twist.linear.z = 0
             twist.angular.x = 0
             twist.angular.y = 0
@@ -227,7 +227,7 @@ def main():
     # Weight matrices
     weights = {
         'Q': 100*np.diag([1.0, 1.0]),
-        'q': 3.0,
+        'q': 7.0,
         'R': 10*np.diag([0.1, 1.0, 1.0])
         }
 
@@ -236,13 +236,13 @@ def main():
     
     # Constraints
     constraints = {
-        'omega_min': -1.0,
+        'omega_min': -3.0,
         'v_min': 0,
         'gamma_min': 0,
         'theta_min': -np.inf,
         'beta_min': 0,
-        'omega_max': 1.0,
-        'v_max': 1.0,
+        'omega_max': 3.0,
+        'v_max': 0.5,
         'gamma_max': 1,
         'theta_max': np.inf,
         'beta_max': beta_limit-5

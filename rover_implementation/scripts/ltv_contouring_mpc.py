@@ -110,7 +110,7 @@ def generate_spline_path(path, cycles):
     return path_spline
     
 def get_track():
-    serverIp = '10.42.0.239'
+    serverIp = '10.42.0.90'
     tcpPort = 9998
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     
