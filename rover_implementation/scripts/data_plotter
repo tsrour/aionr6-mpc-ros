@@ -30,7 +30,7 @@ def paramCallback(msg):
 
 def velCallback(msg):
     if len(history_time_vel) == len(history_time_odom):
-        v_cmd = msg.linear.y*1.5
+        v_cmd = msg.linear.y
         omega_cmd = msg.angular.z
         history_v.append(v_cmd)
         history_omega.append(omega_cmd)
