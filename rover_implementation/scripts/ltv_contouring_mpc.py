@@ -15,6 +15,7 @@ import math
 from scipy import sparse
 #import scipy as sp
 import interpolate as ip
+import socket, time
 
 def generate_track_spline(track_points, cycles):
     """ Load points for center, outer of track and path, and returns
@@ -107,6 +108,65 @@ def generate_spline_path(path, cycles):
     
     return path_spline
 
+def get_track():
+    serverIp = '10.42.0.239'
+    tcpPort = 9998
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    # Wait till server goes online
+    while True:
+      try:
+          server.connect((serverIp, tcpPort))
+          break
+      except socket.error:
+          time.sleep(2)
+    
+    # Get track from server
+    track = {}
+    track_elements = ['inner', 'outer', 'path']
+    track_index = 0
+    while track_index < 3:
+        server.send(b'ready')
+        msg = ''
+        while True:
+            try:
+                pkt_length = int(server.recv(3))
+            except ValueError:
+                print("error")
+                server.send(b'resend')
+                msg = ''
+                break
+            print(pkt_length)
+            if pkt_length == 0:
+                break
+            pkt = server.recv(pkt_length)
+            pkt = pkt.decode("utf-8")
+            msg = msg + pkt
+        if msg == '':
+            track_index = 0
+            track = {}
+            # Wait till server reconnects
+            server.close()
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            while True:
+                try:
+                    server.connect((serverIp, tcpPort))
+                    break
+                except socket.error:
+                    time.sleep(2)
+            # restart the sending process (loop)
+            continue
+        msg = msg.split(';')
+        data = []
+        for dim in msg:
+            data.append(list(map(float,dim.split(','))))
+        time.sleep(2)
+        data = np.array(data)
+        track[track_elements[track_index]] = data
+        track_index+=1
+    track['center'] = 0.5*(track['inner']+track['outer'])
+    return track
+    
 def load_track(filename):
     """ Load positions for inner and outer track boundaries and path, 
     calculate track center, return in dictionary """

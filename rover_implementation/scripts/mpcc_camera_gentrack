@@ -218,7 +218,7 @@ def main():
     cycles = 2
     track_spline = ltvcmpc.generate_track_spline(track_points,cycles)
     
-    N = 30 # Set horizon
+    N = 40 # Set horizon
     
     # Simulation settings
     Ts = 0.1 # Sampling period
@@ -226,9 +226,9 @@ def main():
 
     # Weight matrices
     weights = {
-        'Q': 100*np.diag([1.0, 1.0]),
-        'q': 3.0,
-        'R': 10*np.diag([0.1, 1.0, 1.0])
+        'Q': 70*np.diag([1.0, 1.0]),
+        'q': 1.0,
+        'R': 100*np.diag([0.1, 0.5, 1.0])
         }
 
     # Load splines for path and track
@@ -242,7 +242,7 @@ def main():
         'theta_min': -np.inf,
         'beta_min': 0,
         'omega_max': 3.0,
-        'v_max': 1.0,
+        'v_max': 0.8,
         'gamma_max': 1.0,
         'theta_max': np.inf,
         'beta_max': beta_limit-5
