@@ -227,7 +227,7 @@ def main():
     # Weight matrices
     weights = {
         'Q': 100*np.diag([1.0, 1.0]),
-        'q': 9.0,
+        'q': 3.0,
         'R': 10*np.diag([0.1, 1.0, 1.0])
         }
 
