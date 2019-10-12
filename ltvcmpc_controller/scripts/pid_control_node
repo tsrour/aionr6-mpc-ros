@@ -1,0 +1,75 @@
+#!/usr/bin/env python
+
+import numpy as np
+import math
+import rospy
+from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+#########################################################################################
+
+class mpcController(object):
+    def __init__(self, pub):
+        self._pub = pub
+        self._xref = 0
+        self._yref = 0
+        
+    def ref_callback(self, msg):
+        self._xref = msg.position.x
+        self._yref = msg.position.y
+        
+    # define the callback function, this is invoked whenever new messages are received
+    def callback(self, msg):
+        
+        # Get the x, y and theta measurements (states)
+        x_measure = msg.pose.pose.position.x
+        y_measure = msg.pose.pose.position.y
+        z_measure = msg.pose.pose.orientation.z
+        w_measure = msg.pose.pose.orientation.w
+        theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
+        
+        delta_x = self._xref - x_measure
+        delta_y = self._yref - y_measure
+        Kp = 4
+        theta_ref = math.atan2(delta_y, delta_x)
+        theta_err = theta_ref - theta_measure
+        vel_dir = 1
+        if abs(theta_err) > math.pi:
+            theta_err = np.sign(theta_err)*(2*math.pi - abs(theta_err))
+        if abs(theta_err) > math.pi/2:
+            theta_err = np.sign(theta_err)*(math.pi - abs(theta_err))
+            vel_dir = -1
+        omega_input = Kp*theta_err
+        dist = math.sqrt(delta_x**2+delta_y**2)
+        v_input = 0.3*vel_dir*(dist)
+        if (dist < 0.1):
+            v_input = 0
+            omega_input = 0
+            
+        # Apply control input to rover
+        twist = Twist()
+        twist.linear.x = v_input
+        twist.linear.y = 0
+        twist.linear.z = 0
+        twist.angular.x = 0
+        twist.angular.y = 0
+        twist.angular.z = omega_input
+        self._pub.publish(twist)
+        rospy.loginfo('Inputs: ({}, {}, {})'.format(theta_ref, theta_measure, theta_err))
+        
+def main():
+    
+    # Initialize the ROS node
+    rospy.init_node('PID_Controller')
+    
+    # Define the publisher
+    pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist, queue_size=1)
+    controller = mpcController(pub)
+    
+    # subscribe to the /odom topic and run callback function
+    rospy.Subscriber("/rover/ref", Pose, controller.ref_callback)
+    rospy.Subscriber("/odom", Odometry, controller.callback)
+    rospy.spin() # runs forever
+    
+if __name__ == '__main__':
+    main()

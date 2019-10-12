@@ -179,8 +179,8 @@ class mpcController(object):
         self._u_guess = np.hstack([sol['u'][:,1:], np.zeros((N_INPUTS,1))])
         
         # Obtain control inputs to feed the rover
-        v_input = sol['u'][1,0]
-        omega_input = sol['u'][0,0]
+        v_input = sol['u'][1,1]
+        omega_input = sol['u'][0,1]
 
         # Apply control input to rover
         twist = Twist()
@@ -265,7 +265,7 @@ def main():
     # Initialise inputs
     u_curr = np.vstack(np.array([init_omega, init_v, init_gamma])) # Guess for 
     # initial u
-    u_guess = np.tile(u_curr, [1, N]) # Solved inputs over horizon
+    u_guess = np.tile(u_curr, [1, N+1]) # Solved inputs over horizon
 
 
     # Initialise states
@@ -277,10 +277,10 @@ def main():
     
     # Determine initial guesses for inputs
     for n in range(2, N+1):
-        sol = ltvcmpc.unicycle_raw_solver(weights, constraints, xi_curr, u_guess[:,0:n], n,
+        sol = ltvcmpc.unicycle_raw_solver(weights, constraints, xi_curr, u_guess[:,0:n+1], n,
                                           Ts, track_spline)
         # Update guesses for u
-        u_guess[:,0:n] = sol['u']
+        u_guess[:,0:n+1] = sol['u']
         
     # Initialize the ROS node
     rospy.init_node('MPC_Controller')
