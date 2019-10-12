@@ -12,7 +12,7 @@ from geometry_msgs.msg import Pose
 from gazebo_msgs.srv import *
 from gazebo_msgs.msg import ModelState
 import time
-from mpcc_msgs.msg import MPCC_Params
+from ltvcmpc_msgs.msg import Params
 
 # Constant terms
 N_STATES = 4
@@ -105,7 +105,7 @@ class mpcController(object):
         return (omega_input, v_input)
     
     def formatMpccParams(self):
-        mpcc_params = MPCC_Params()
+        mpcc_params = Params()
         mpcc_params.weights.Q = [self._weights['Q'][0,0], self._weights['Q'][1,1]]
         mpcc_params.weights.q = self._weights['q']
         mpcc_params.weights.R = [self._weights['R'][0,0], self._weights['R'][1,1], self._weights['R'][2,2]]
@@ -218,7 +218,7 @@ def main():
     cycles = 2
     track_spline = ltvcmpc.generate_track_spline(track_points,cycles)
     
-    N = 40 # Set horizon
+    N = 50 # Set horizon
     
     # Simulation settings
     Ts = 0.1 # Sampling period
@@ -227,7 +227,7 @@ def main():
     # Weight matrices
     weights = {
         'Q': 70*np.diag([1.0, 1.0]),
-        'q': 1.0,
+        'q': 1.7,
         'R': 100*np.diag([0.1, 0.5, 1.0])
         }
 
@@ -242,7 +242,7 @@ def main():
         'theta_min': -np.inf,
         'beta_min': 0,
         'omega_max': 3.0,
-        'v_max': 0.8,
+        'v_max': 1.2,
         'gamma_max': 1.0,
         'theta_max': np.inf,
         'beta_max': beta_limit-5
@@ -287,7 +287,7 @@ def main():
     
     # Define the publisher
     vel_pub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
-    param_pub = rospy.Publisher('/rover/mpcc_params', MPCC_Params, queue_size=1)
+    param_pub = rospy.Publisher('/rover/mpcc_params', Params, queue_size=1)
     controller = mpcController(vel_pub, param_pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points)
     
     # subscribe to the /odom topic and run callback function

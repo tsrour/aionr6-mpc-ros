@@ -12,7 +12,7 @@ import ltv_contouring_mpc as ltvcmpc
 import numpy as np
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
-from mpcc_msgs.msg import MPCC_Params
+from ltvcmpc_msgs.msg import Params
 import os
 from datetime import datetime
 from geometry_msgs.msg import Pose
@@ -68,7 +68,7 @@ def main():
     # subscribe to the /odom topic and run callback function
     rospy.Subscriber("/mavros/setpoint_velocity/cmd_vel_unstamped", Twist, velCallback) 
 	# subscribe to the /odom topic and run callback function
-    rospy.Subscriber("/rover/mpcc_params", MPCC_Params, paramCallback) 
+    rospy.Subscriber("/rover/mpcc_params", Params, paramCallback) 
 
     rospy.spin() # runs forever
     
