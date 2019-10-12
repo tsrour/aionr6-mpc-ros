@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>ltvcmpc_msgs</name>
+  <version>0.0.0</version>
+  <description>Messages for the Linear Time Varying Contouring MPC Controller node </description>
+  <maintainer email="tony.srour95@gmail.com">Tony Srour</maintainer>
+  <license>BSD</license>
+  <author email="tony.srour95@gmail.com">Tony Srour</author>
+
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>rospy</build_depend>
+  <build_depend>message_generation</build_depend>
+  <build_export_depend>rospy</build_export_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>message_runtime</exec_depend>
+
+  <export>
+  </export>
+</package>

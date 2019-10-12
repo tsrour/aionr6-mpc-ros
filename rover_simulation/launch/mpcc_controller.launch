@@ -4,7 +4,7 @@
     pkg="rover_simulation"
     type="mpcc_control_node" />
 
-    <node
+  <node
     name="data_plotter"
     pkg="rover_simulation"
     type="data_plotter" />
