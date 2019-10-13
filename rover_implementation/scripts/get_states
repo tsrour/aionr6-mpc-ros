@@ -27,7 +27,7 @@ def main():
     
     # Define the publisher
     pub = rospy.Publisher('rover/states', Pose, queue_size=1)
-    rate = rospy.Rate(10) # sample rate
+    rate = rospy.Rate(20) # sample rate
     
     while not rospy.is_shutdown():
         send_time = time.time()
