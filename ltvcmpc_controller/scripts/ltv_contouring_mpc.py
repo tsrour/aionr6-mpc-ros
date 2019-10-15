@@ -8,15 +8,14 @@ Supporting functions for ltv contouring mpc
 @author: khewk
 """
 import osqp
-# import scipy.io
+import scipy.io
 import matplotlib.pyplot as plt
 import numpy as np
 import math
 from scipy import sparse
-import scipy as sp
-import socket, time
+#import scipy as sp
 import interpolate as ip
-import scipy.io
+import socket, time
 
 def generate_track_spline(track_points, cycles):
     """ Load points for center, outer of track and path, and returns
@@ -108,7 +107,7 @@ def generate_spline_path(path, cycles):
             }
     
     return path_spline
-    
+
 def get_track():
     serverIp = '10.42.0.239'
     tcpPort = 9998
@@ -172,7 +171,6 @@ def load_track(filename):
     """ Load positions for inner and outer track boundaries and path, 
     calculate track center, return in dictionary """
     mat = scipy.io.loadmat(filename)
-    print(mat.keys())
     center = 0.5*(mat['inner'] + mat['outer'])
     track = {
             'inner': 10*mat['inner'],
@@ -194,39 +192,56 @@ def unicycle_raw_solver(weights, constraints, xi_curr, u_guess, N, Ts,
     """ Solve for states and inputs over horizon using MPC """
     
     # Constants
-    BETA_INDEX = 3
-    N_STATES = 4
-    N_INPUTS = 3
+    const = {
+            'BETA_INDEX': 3,
+            'N_STATES': 4,
+            'N_INPUTS': 3,
+            'N': N,
+            'N_POSITION_STATES': 2,
+            'N_VIRTUAL_STATES': 1,
+            'N_ETA_STATES': 1
+            }
+    #BETA_INDEX = 3
+    #N_STATES = 4
+    #N_INPUTS = 3
     
     # Set weighting for virtual reference to 0 at end of track
-    if xi_curr[BETA_INDEX,0] > track_spline['break_fin']:
+    if xi_curr[const['BETA_INDEX'],0] > track_spline['break_fin']:
         weights['q'] = 0
  
     # Calculate guesses for states over the horizon  
-    xi_guess = np.hstack((xi_curr, np.zeros((N_STATES, N))))
+    xi_guess = np.hstack((xi_curr, np.zeros((const['N_STATES'], const['N']))))
     for n in range(0, N):
         xi_guess[:,n+1] = unicycle_raw_taylor_order2_next_step(xi_guess[:,n],
-                u_guess[:,n], Ts)
+                u_guess[:,n+1], Ts)
     
     # Linearise the state space mdoel %%%%%%%%%%%%%
-    state_space_mats = unicycle_raw_linearise_state_space_horizon(u_guess, xi_guess, N, Ts)
+    state_space_mats = unicycle_raw_linearise_state_space_horizon(u_guess[1:], xi_guess, const['N'], Ts)
 
     # Get Jacobians for tracking error and boundary variable
-    track_params = unicycle_raw_linearise_track_horizon(xi_guess, N, track_spline)
+    track_params = unicycle_raw_linearise_track_horizon(xi_guess, const['N'], track_spline)
+    
+    # Define internal state and input constraints
+    constr_qp = {
+            'eta_min': np.array([[constraints['theta_min']],[constraints['beta_min']]]),
+            'eta_max': np.array([[constraints['theta_max']],[constraints['beta_max']]]),
+            'u_min': np.array([[constraints['omega_min']],[constraints['v_min']],[constraints['gamma_min']]]),
+            'u_max': np.array([[constraints['omega_max']],[constraints['v_max']],[constraints['gamma_max']]])
+            }
     
     # Apply change of variable for linearisation to constraints
-    del_constraints = raw_change_of_variable_constraints_over_horizon(xi_guess,
-                                                                  u_guess,
-                                                                  constraints, 
-                                                                  N)
+    #del_constraints = raw_change_of_variable_constraints_over_horizon(xi_guess,
+    #                                                              u_guess,
+    #                                                              constraints, 
+    #                                                              N)
     
     # Convert mpc to qp problem
     #qp_mats = raw_unicycle_ltv_contouring_mpc2qp(state_space_mats, track_params,
     #                                        del_constraints, weights, u_guess, 
     #                                        N)
-    qp_mats = raw_unicycle_ltv_contouring_mpc2qp_loop(state_space_mats, track_params,
-                                            del_constraints, weights, u_guess, 
-                                            N)
+    qp_mats = unicycle_smooth_ltv_contouring_mpc2qp_loop(state_space_mats, track_params,
+                                            constr_qp, weights, u_guess, xi_guess, 
+                                            const)
     
     
     # Solve qp problem
@@ -235,18 +250,44 @@ def unicycle_raw_solver(weights, constraints, xi_curr, u_guess, N, Ts,
                qp_mats['u'], warm_start=True, verbose=False)
     res = prob.solve()
     
-    u_delta_flat = res.x[(N+1)*N_STATES:(N+1)*N_STATES+N*N_INPUTS]
-    xi_delta_flat = res.x[0:(N+1)*N_STATES]
+    u_delta_flat = res.x[(N+1)*const['N_STATES']:(N+1)*const['N_STATES']+(N+1)*const['N_INPUTS']]
+    xi_delta_flat = res.x[0:(N+1)*const['N_STATES']]
     
     # Update states and input
-    u_delta = np.reshape(u_delta_flat, (N_INPUTS, N), 'F')
-    xi_delta = np.reshape(xi_delta_flat, (N_STATES, N+1), 'F')
+    u_delta = np.reshape(u_delta_flat, (const['N_INPUTS'], N+1), 'F')
+    xi_delta = np.reshape(xi_delta_flat, (const['N_STATES'], N+1), 'F')
     
     solution = {
             'u': u_guess + u_delta,
             'xi': xi_guess + xi_delta
             }
+    
+    solution = hard_constrainer_unicycle1(solution,const,constraints)
         
+    solution
+    
+    return solution
+
+def hard_constrainer_unicycle1(solution, const, constr):
+    OMEGA_I = 0
+    V_I = 1
+    GAMMA_I = 2
+    for i in range(1,const['N']+1): # ignore first input since that corresponds to input sent to plant at previous time
+        # Check omega
+        if solution['u'][OMEGA_I,i] > constr['omega_max']:
+            solution['u'][OMEGA_I,i] = constr['omega_max']
+        elif solution['u'][OMEGA_I,i] < constr['omega_min']:
+            solution['u'][OMEGA_I,i] = constr['omega_min']
+        # Check velocity
+        if solution['u'][V_I,i] > constr['v_max']:
+            solution['u'][V_I,i] = constr['v_max']
+        elif solution['u'][V_I,i] < constr['v_min']:
+            solution['u'][V_I,i] = constr['v_min']
+        # Check path speed
+        if solution['u'][GAMMA_I,i] > constr['gamma_max']:
+            solution['u'][GAMMA_I,i] = constr['gamma_max']
+        elif solution['u'][GAMMA_I,i] < constr['gamma_min']:
+            solution['u'][GAMMA_I,i] = constr['gamma_min']
     return solution
 
 def unicycle_solver(weights, constraints, xi_curr, u_guess, N, Ts, 
@@ -1151,6 +1192,197 @@ def raw_unicycle_ltv_contouring_mpc2qp_loop(state_space_mats, track_params,
     qp_mats = {
             'P': sparse.csc_matrix(P),
             'q': q,
+            'A': sparse.csc_matrix(A),
+            'l': l,
+            'u': u
+                }
+    
+    #scipy.io.savemat('qpmats_fast_v2', qp_mats)
+    
+    return qp_mats
+
+def unicycle_smooth_ltv_contouring_mpc2qp_loop(state_space_mats, track_params, 
+                                   constr_qp, weights, u_guess, xi_guess, const):
+    
+    
+    # Formulate P matrix
+    Pmat = (np.zeros(((const['N']+1)*const['N_STATES'] + 
+                      (const['N']+1)*const['N_INPUTS'], 
+                      (const['N']+1)*const['N_STATES'] + 
+                      (const['N']+1)*const['N_INPUTS'])))
+    # State section of P matrix
+    for i in range(1,const['N']+1):
+        Pmat[i*const['N_STATES']:(i+1)*const['N_STATES'], i*const['N_STATES']:(i+1)*const['N_STATES']] = (
+                track_params['J_eps'][i-1].T @ weights['Q'] @ track_params['J_eps'][i-1])
+    # Input section of P matrix
+    doubleR = 2*weights['R']
+    negR = -1*weights['R']
+    # First and last diagonal block
+    Pmat[(const['N']+1)*const['N_STATES']:(const['N']+1)*const['N_STATES']+const['N_INPUTS'],(const['N']+1)*const['N_STATES']:(const['N']+1)*const['N_STATES']+const['N_INPUTS']] = weights['R']
+    Pmat[-const['N_INPUTS']:,-const['N_INPUTS']:] = weights['R']
+    # Main diagonal entries
+    for i in range(1,const['N']):
+        Pmat[(const['N']+1)*const['N_STATES']+i*const['N_INPUTS']:(const['N']+1)*const['N_STATES']+(i+1)*const['N_INPUTS'],(const['N']+1)*const['N_STATES']+i*const['N_INPUTS']:(const['N']+1)*const['N_STATES']+(i+1)*const['N_INPUTS']] = doubleR
+    # Off-by-one diagonal entries
+    for i in range(0,const['N']):
+        Pmat[(const['N']+1)*const['N_STATES']+(i+1)*const['N_INPUTS']:(const['N']+1)*const['N_STATES']+(i+2)*const['N_INPUTS'],(const['N']+1)*const['N_STATES']+i*const['N_INPUTS']:(const['N']+1)*const['N_STATES']+(i+1)*const['N_INPUTS']] = negR
+        Pmat[(const['N']+1)*const['N_STATES']+i*const['N_INPUTS']:(const['N']+1)*const['N_STATES']+(i+1)*const['N_INPUTS'],(const['N']+1)*const['N_STATES']+(i+1)*const['N_INPUTS']:(const['N']+1)*const['N_STATES']+(i+2)*const['N_INPUTS']] = negR
+    Pmat = 2*Pmat;
+    
+    
+    # Formulate q matrix
+    qmat = np.zeros(((const['N']+1)*const['N_STATES'] + (const['N']+1)*const['N_INPUTS'],1))
+    # State section of q matrix
+    qplus = np.array([[0],[0],[0],[weights['q']]])
+    for i in range(1,const['N']+1):
+        qmat[i*const['N_STATES']:(i+1)*const['N_STATES'],0] = ((2*track_params['J_eps'][i-1].T @ weights['Q'] @ track_params['eps_offset'][i-1] - qplus).T)[0]
+    # Input section of q matrix
+    for i in range(0,const['N']+1):
+        if i == 0:
+            qmat[(const['N']+1)*const['N_STATES']:(const['N']+1)*const['N_STATES']+const['N_INPUTS'],0] = 2*(negR @ (u_guess[:,1] - u_guess[:,0]))
+        elif i == const['N']:
+            qmat[(const['N']+1)*const['N_STATES'] + i*const['N_INPUTS']:(const['N']+1)*const['N_STATES'] + (i+1)*const['N_INPUTS'],0] = (
+                    2*(negR @ (u_guess[:,const['N']-1] - u_guess[:,const['N']]))
+                    )
+        else:
+            qmat[(const['N']+1)*const['N_STATES'] + i*const['N_INPUTS']:(const['N']+1)*const['N_STATES'] + (i+1)*const['N_INPUTS'],0] =  (
+                    2*(-weights['R'] @ (u_guess[:,i+1] - 2*u_guess[:,i] + u_guess[:,i-1]))
+                    )
+    
+# ################################ OLD P AND q MATRIX
+#    N_STATES = state_space_mats['Bd'][0].shape[0]
+#    N_INPUTS = state_space_mats['Bd'][0].shape[1]
+#    
+#    # Setup qp matrices
+#    P = np.zeros(((N+1)*N_STATES + N*N_INPUTS, (N+1)*N_STATES + N*N_INPUTS))
+#    q = np.zeros(((N+1)*N_STATES + N*N_INPUTS, 1))
+#    #Aeq = np.zeros(((N+1)*N_STATES, (N+1)*N_STATES + N*N_INPUTS))
+#    #leq = np.zeros(((N+1)*N_STATES, 1)) # column matrix of zeros
+#    #ueq = np.zeros(((N+1)*N_STATES, 1)) # column matrix of zeros
+#    #Aineq = np.zeros(((N+1)*N_STATES + N*N_INPUTS, (N+1)*N_STATES + N*N_INPUTS))
+#    #lineq = np.zeros(((N+1)*N_STATES + N*N_INPUTS, 1))
+#    #uineq = np.zeros(((N+1)*N_STATES + N*N_INPUTS, 1))
+#    A = np.zeros((2*(N+1)*N_STATES + N*N_INPUTS, (N+1)*N_STATES + N*N_INPUTS))
+#    l = np.zeros((2*(N+1)*N_STATES + N*N_INPUTS, 1))
+#    u = np.zeros((2*(N+1)*N_STATES + N*N_INPUTS, 1))
+#    
+#    # Construct P matrix
+#    # Set block diagonals to be tracking cost
+#    for i in range(0, N+1):
+#        P[i*N_STATES:(i+1)*N_STATES, i*N_STATES:(i+1)*N_STATES] = (
+#                2.0 * track_params['J_eps'][i].T @ weights['Q'] @ 
+#                track_params['J_eps'][i])  
+#    # Set block diagonsl to be input cost
+#    for i in range(0, N):
+#        P[(N+1)*N_STATES+i*N_INPUTS:(N+1)*N_STATES+(i+1)*N_INPUTS,
+#          (N+1)*N_STATES+i*N_INPUTS:(N+1)*N_STATES+(i+1)*N_INPUTS] = 2.0 * weights['R']
+#    
+#    for i in range(0, N+1):
+#        q[i*N_STATES:(i+1)*N_STATES, 0] = ( (2 * track_params['eps_offset'][i])[:,0].T @ weights['Q'] @
+#         track_params['J_eps'][i] )
+#        q[(i+1)*N_STATES-1, 0] = q[(i+1)*N_STATES-1, 0] - weights['q']
+#    
+#    
+##    for i in range(0, N+1):
+##        q[i*N_STATES:(i+1)*N_STATES, 0] = ( (2*track_params['J_eps'][i].T @ weights['Q'] @ 
+##         track_params['eps_offset'][i])[:,0] )
+##        q[(i+1)*N_STATES-1, 0] = q[(i+1)*N_STATES-1, 1] - weights['q']
+#        
+#    for i in range(0, N):
+#        q[(N+1)*N_STATES+i*N_INPUTS:(N+1)*N_STATES+(i+1)*N_INPUTS, 0] = (
+#                2.0 * weights['R'] @ u_guess[:,i] )
+##################################
+        
+        
+    A = np.zeros(((2*const['N']+1)*const['N_STATES'] + (const['N']+1)*const['N_INPUTS'], (const['N']+1)*const['N_STATES'] + (const['N']+1)*const['N_INPUTS']))
+    l = np.zeros(((2*const['N']+1)*const['N_STATES'] + (const['N']+1)*const['N_INPUTS'], 1))
+    u = np.zeros(((2*const['N']+1)*const['N_STATES'] + (const['N']+1)*const['N_INPUTS'], 1))
+
+    # Construct Aeq matrix
+    # Ax
+    for i in range(0, (const['N']+1)*const['N_STATES']):
+        A[i,i] = -1 # constrain initial state
+    for i in range(0, const['N']):
+        A[(i+1)*const['N_STATES']:(i+2)*const['N_STATES'],i*const['N_STATES']:(i+1)*const['N_STATES']] += (
+                state_space_mats['Ad'][i])
+    # Bu
+    for i in range(0, const['N']):
+        A[(i+1)*const['N_STATES']:(i+2)*const['N_STATES'], (const['N']+1)*const['N_STATES'] + (i+1)*const['N_INPUTS']:(const['N']+1)*const['N_STATES'] + (i+2)*const['N_INPUTS']] = (
+                state_space_mats['Bd'][i])
+    # constrain initial input
+    A[(const['N']+1)*const['N_STATES']:(const['N']+1)*const['N_STATES']+const['N_INPUTS'], (const['N']+1)*const['N_STATES']:(const['N']+1)*const['N_STATES']+const['N_INPUTS']] = -np.eye(const['N_INPUTS'])
+    
+    # increment rest by number of inptus
+    # Ignore leq and ueq since just vector of zeros
+    
+    # Construct Aineq
+    
+    
+    # get rid of one row in Aineq... do this by 0->N, increment column by 1, decrement input rows by 1
+    # State part of Aineq
+    for i in range(0, const['N']):
+        A[(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']:(const['N']+1)*const['N_STATES'] + const['N_INPUTS']  + i*const['N_STATES']+2, (i+1)*const['N_STATES']:(i+2)*const['N_STATES']] = (
+                track_params['J_p'][i])
+        A[(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']+2:(const['N']+1)*const['N_STATES'] + const['N_INPUTS']  + (i+1)*const['N_STATES'],(i+1)*const['N_STATES']+2:(i+2)*const['N_STATES']] = (
+                np.eye(2))
+        
+    # Input part of Aineq
+    for i in range(0, const['N']*const['N_INPUTS']):
+        A[(2*const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i, (const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i] = 1
+        
+    # Consruct l
+    # Inequality constraints
+    # lower
+    boundconstr = np.array([1, np.inf])
+    for i in range(0,const['N']):
+        # constraint for track boundary
+        l[(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']:(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']+2, 0] = (
+                -boundconstr - track_params['p_offset'][i].T)
+    
+        # constraint for angle and virtual state
+        l[(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']+2:(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + (i+1)*const['N_STATES'], 0] = (
+                constr_qp['eta_min'].T - xi_guess[2:4,i+1]) #del_constraints['ximin'][(i-1)*constr_qp['N_STATES']+2:i*constr_qp['N_STATES'],0])
+    for i in range(0,const['N']):
+       l[(2*const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_INPUTS']:(2*const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + (i+1)*const['N_INPUTS'], 0] = constr_qp['u_min'].T - u_guess[:,i+1]
+    
+    # Upper
+    for i in range(0,const['N']):
+        # constraint for track boundary
+        u[(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']:(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']+2, 0] = (
+                boundconstr - track_params['p_offset'][i].T)
+        
+        # constraint for angle and virtual state
+        u[(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_STATES']+2:(const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + (i+1)*const['N_STATES'], 0] = (
+                constr_qp['eta_max'].T - xi_guess[2:4,i+1]) #del_constraints['ximin'][(i-1)*constr_qp['N_STATES']+2:i*constr_qp['N_STATES'],0])
+    for i in range(0,const['N']):
+        u[(2*const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + i*const['N_INPUTS']:(2*const['N']+1)*const['N_STATES'] + const['N_INPUTS'] + (i+1)*const['N_INPUTS'], 0] = constr_qp['u_max'].T - u_guess[:,i+1]
+    
+        
+        #del_constraints['ximin'][(i-1)*constr['N_STATES']+2:i*constr['N_STATES'],0])
+    #l[2*(N+1)*N_STATES:2*(N+1)*N_STATES + N*N_INPUTS] = del_constraints['umin']
+    
+    # Consruct u
+#    for i in range(0,N+1):
+#        if i == 0:
+#            u[(N+1)*N_STATES:(N+1)*N_STATES + N_STATES, 0] = np.full((1, N_STATES), np.inf)
+#            
+#        else:
+#            # constraint for track boundary
+#            u[(N+1)*N_STATES + i*N_STATES:(N+1)*N_STATES + i*N_STATES+2, 0] = (
+#                    np.ones((1,2)) - track_params['p_offset'][i].T)
+#        
+#            # constraint for angle and virtual state
+#            u[(N+1)*N_STATES + i*N_STATES+2:(N+1)*N_STATES + (i+1)*N_STATES, 0] = (
+#                    del_constraints['ximax'][(i-1)*N_STATES+2:i*N_STATES,0])
+            
+#    u[2*(N+1)*N_STATES:2*(N+1)*N_STATES + N*N_INPUTS,0] = del_constraints['umax'].T
+    
+    Pmat
+    A
+    
+    qp_mats = {
+            'P': sparse.csc_matrix(Pmat),
+            'q': qmat,
             'A': sparse.csc_matrix(A),
             'l': l,
             'u': u

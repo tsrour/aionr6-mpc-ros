@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
 import numpy as np
-import matplotlib.pyplot as plt
-import scipy.io
 import ltv_contouring_mpc as ltvcmpc
 import math
 import rospy
@@ -10,6 +8,7 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from gazebo_msgs.srv import *
 from gazebo_msgs.msg import ModelState
+from ltvcmpc_msgs.srv import *
 import time
 from ltvcmpc_msgs.msg import Params
 
@@ -19,8 +18,8 @@ N_INPUTS = 3
 
 class mpcController(object):
     def __init__(self, vel_pub, param_pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points):
-        self._vel_pub = vel_pub
         self._param_pub = param_pub
+        self._vel_pub = vel_pub
         self._weights = weights
         self._constraints = constraints
         self._xi_curr = xi_curr
@@ -34,31 +33,27 @@ class mpcController(object):
         # track iterations
         self._i = 0
         self._avg_sol_time = 0
-        
-        # Initialize rover velocity to 0
-        twist = Twist()
-        self._vel_pub.publish(twist)
-
+    
     def formatMpccParams(self):
-        mpcc_params = Params()
-        mpcc_params.weights.Q = [self._weights['Q'][0,0], self._weights['Q'][1,1]]
-        mpcc_params.weights.q = self._weights['q']
-        mpcc_params.weights.R = [self._weights['R'][0,0], self._weights['R'][1,1], self._weights['R'][2,2]]
-        mpcc_params.constraints.omega_min = self._constraints['omega_min']
-        mpcc_params.constraints.v_min = self._constraints['v_min']
-        mpcc_params.constraints.gamma_min = self._constraints['gamma_min']
-        mpcc_params.constraints.theta_min = self._constraints['theta_min']
-        mpcc_params.constraints.beta_min = self._constraints['beta_min']
-        mpcc_params.constraints.omega_max = self._constraints['omega_max']
-        mpcc_params.constraints.v_max = self._constraints['v_max']
-        mpcc_params.constraints.gamma_max = self._constraints['gamma_max']
-        mpcc_params.constraints.theta_max = self._constraints['theta_max']
-        mpcc_params.constraints.beta_max = self._constraints['beta_max']
-        mpcc_params.horizon = self._N
-        mpcc_params.Ts = self._Ts
-        mpcc_params.avg_solve_time = self._avg_sol_time
-        return mpcc_params
-        
+        ltvcmpc_params = Params()
+        ltvcmpc_params.weights.Q = [self._weights['Q'][0,0], self._weights['Q'][1,1]]
+        ltvcmpc_params.weights.q = self._weights['q']
+        ltvcmpc_params.weights.R = [self._weights['R'][0,0], self._weights['R'][1,1], self._weights['R'][2,2]]
+        ltvcmpc_params.constraints.omega_min = self._constraints['omega_min']
+        ltvcmpc_params.constraints.v_min = self._constraints['v_min']
+        ltvcmpc_params.constraints.gamma_min = self._constraints['gamma_min']
+        ltvcmpc_params.constraints.theta_min = self._constraints['theta_min']
+        ltvcmpc_params.constraints.beta_min = self._constraints['beta_min']
+        ltvcmpc_params.constraints.omega_max = self._constraints['omega_max']
+        ltvcmpc_params.constraints.v_max = self._constraints['v_max']
+        ltvcmpc_params.constraints.gamma_max = self._constraints['gamma_max']
+        ltvcmpc_params.constraints.theta_max = self._constraints['theta_max']
+        ltvcmpc_params.constraints.beta_max = self._constraints['beta_max']
+        ltvcmpc_params.horizon = self._N
+        ltvcmpc_params.Ts = self._Ts
+        ltvcmpc_params.avg_solve_time = self._avg_sol_time
+        return ltvcmpc_params
+
     # define the callback function, this is invoked whenever new messages are received
     def callback(self, msg):
         
@@ -95,16 +90,12 @@ class mpcController(object):
         self._u_guess = np.hstack([sol['u'][:,1:], np.zeros((N_INPUTS,1))])
         
         # Obtain control inputs to feed the rover
-        v_input = sol['u'][1,0]
-        omega_input = sol['u'][0,0]
-        
+        v_input = sol['u'][1,1]
+        omega_input = sol['u'][0,1]
+
         # Apply control input to rover
         twist = Twist()
         twist.linear.x = v_input
-        twist.linear.y = 0
-        twist.linear.z = 0
-        twist.angular.x = 0
-        twist.angular.y = 0
         twist.angular.z = omega_input
         self._vel_pub.publish(twist)
         
@@ -114,29 +105,31 @@ class mpcController(object):
         # Compute solving time and average solving time
         sol_time = time.time()-start_time
         self._avg_sol_time = ((self._avg_sol_time*(self._i-1))+sol_time)/self._i
-
-        # Publish relevent data to MPCC_Param Topic 
-        mpcc_params = self.formatMpccParams()
-        self._param_pub.publish(mpcc_params)
+        
+        # Publish relevent data to ltvcmpc Param Topic 
+        ltvcmpc_params = self.formatMpccParams()
+        self._param_pub.publish(ltvcmpc_params)
 
         # Print control inputs for debugging purposes
         rospy.loginfo('Avg Solving Time: ({})'.format(self._avg_sol_time)) 
-        
         
 def main():
     # Path following using ltv contouring mpc
     
     # Filename for track
-    track_points_filename = '../YP2_capstone_ws/src/rover_simulation/scripts/data/optimal_path_unicycle.mat'
-    
+    track_points_filename = '../YP2_capstone_ws/src/ltvcmpc_controller/scripts/data/optimal_path_unicycle.mat'
+
     # Load track and check if it has been loaded properly
     track_points = ltvcmpc.load_track(track_points_filename)
+
+    # Load track and check if it has been loaded properly
+    # track_points = ltvcmpc.get_track()
 
     # Generate spline for path, center and outer of track
     cycles = 2
     track_spline = ltvcmpc.generate_track_spline(track_points,cycles)
     
-    N = 60 # Set horizon
+    N = 20 # Set horizon
     
     # Simulation settings
     Ts = 0.1 # Sampling period
@@ -144,42 +137,39 @@ def main():
 
     # Weight matrices
     weights = {
-        'Q': 100*np.diag([1.0, 1.0]),
-        'q': 50.0,
-        'R': 10*np.diag([0.1, 1.0, 1.0])
+        'Q': 150*np.diag([1.0, 1.0]),
+        'q': 1.0,
+        'R': 50*np.diag([0.1, 0.5, 0.5])
         }
 
     # Load splines for path and track
     beta_limit = track_spline['breaks'][0,-1]
     
+
     # Constraints
     constraints = {
-        'omega_min': -16,
-        'v_min': 0.0,
+        'omega_min': -2.0,
+        'v_min': 0,
         'gamma_min': 0,
         'theta_min': -np.inf,
         'beta_min': 0,
-        'omega_max': 16,
-        'v_max': 3,
-        'gamma_max': 2,
+        'omega_max': 2.0,
+        'v_max': 1.2,
+        'gamma_max': 1.2,
         'theta_max': np.inf,
         'beta_max': beta_limit-5
         }
-
 
     # Initial states/inputs
     init_omega = 0.0
     init_gamma = 0.0
     init_v = 0.0
     init_beta = 0.0
-
-    # Load track and check if it has been loaded properly
-    track_points = ltvcmpc.load_track(track_points_filename)
     
     # Initialise inputs
     u_curr = np.vstack(np.array([init_omega, init_v, init_gamma])) # Guess for 
     # initial u
-    u_guess = np.tile(u_curr, [1, N]) # Solved inputs over horizon
+    u_guess = np.tile(u_curr, [1, N+1]) # Solved inputs over horizon
 
 
     # Initialise states
@@ -191,16 +181,15 @@ def main():
     
     # Determine initial guesses for inputs
     for n in range(2, N+1):
-        sol = ltvcmpc.unicycle_raw_solver(weights, constraints, xi_curr, u_guess[:,0:n], n,
+        sol = ltvcmpc.unicycle_raw_solver(weights, constraints, xi_curr, u_guess[:,0:n+1], n,
                                           Ts, track_spline)
         # Update guesses for u
-        u_guess[:,0:n] = sol['u']
-    
+        u_guess[:,0:n+1] = sol['u']
     
     # Initialize Rover Position on Gazebo
-    rospy.wait_for_service('/gazebo/set_model_state')
+    rospy.wait_for_service('/init_position')
     try:
-        set_model_state = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
+        set_model_state = rospy.ServiceProxy('/init_position', InitPosition)
         model_state = ModelState()
         model_state.model_name = "r1_sim"
         model_state.pose.position.x = xi_curr[0]
@@ -209,14 +198,14 @@ def main():
         model_state.pose.orientation.w = math.cos(xi_curr[2]/2)
         print(set_model_state(model_state))
     except rospy.ServiceException:
-        print("Service call failed")
-        
+        rospy.loginfo("Service call failed")
+
     # Initialize the ROS node
-    rospy.init_node('MPCC_Controller')
+    rospy.init_node('MPC_Controller')
     
     # Define the publisher
-    vel_pub = rospy.Publisher('~cmd_vel', Twist, queue_size=1)
-    param_pub = rospy.Publisher('/rover/mpcc_params', MPCC_Params, queue_size=1)
+    vel_pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist, queue_size=1)
+    param_pub = rospy.Publisher('/rover/ltvcmpc_params', Params, queue_size=1)
     controller = mpcController(vel_pub, param_pub, weights, constraints, xi_curr, u_guess, N, Ts, track_spline, M, track_points)
     
     # subscribe to the /odom topic and run callback function

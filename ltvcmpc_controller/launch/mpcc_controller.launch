@@ -1,8 +1,9 @@
 <launch>
-  <node name="mpcc_controller" pkg="rover_simulation" type="mpcc_control_node">
+  <node name="mpcc_controller" pkg="ltvcmpc_controller" type="mpcc_control_node">
   	<remap from="/mpcc_controller/cmd_vel" to="/cmd_vel_mux/input/teleop"/>
+  	<remap from="/gazebo/set_model_state" to="/init_position"/>
   </node>
-  <node name="data_plotter" pkg="rover_simulation" type="data_plotter">
+  <!--node name="data_plotter" pkg="rover_simulation" type="data_plotter">
     <remap from="/cmd_vel_mux/input/teleop" to="/data_plotter/cmd_vel"/>
-  </node>
+  </node-->
 </launch>

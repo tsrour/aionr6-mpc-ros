@@ -11,9 +11,9 @@
       <uri>model://ground_plane</uri>
     </include>
     
-    <include>
+    <!--include>
       <uri>model://rover_racetrack</uri>
-    </include>
+    </include -->
 
     <!-- Global light source -->
     <include>

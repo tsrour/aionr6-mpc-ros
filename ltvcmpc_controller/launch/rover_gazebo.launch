@@ -31,7 +31,7 @@
     pkg="robot_state_publisher"
     type="robot_state_publisher" />
   <!--node
-    name="mpc_controller"
-    pkg="rover_simulation"
-    type="mpc_control_node" /-->
+    name="init_position_server"
+    pkg="ltvcmpc_controller"
+    type="init_position_server"-->
 </launch>
