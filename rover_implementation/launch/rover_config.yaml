@@ -114,7 +114,7 @@ setpoint_position:
 
 # setpoint_velocity
 setpoint_velocity:
-  mav_frame: LOCAL_NED
+  mav_frame: BODY_NED
 
 # vfr_hud
 # None

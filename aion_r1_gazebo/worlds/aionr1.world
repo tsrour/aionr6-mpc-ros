@@ -12,8 +12,12 @@
     </include>
     
     <!--include>
+      <uri>model://std_trackx2</uri>
+    </include-->
+
+    <include>
       <uri>model://rover_racetrack</uri>
-    </include -->
+    </include>
 
     <!-- Global light source -->
     <include>
@@ -23,7 +27,7 @@
     <!-- Focus camera on tall pendulum -->
     <gui fullscreen='0'>
       <camera name='user_camera'>
-        <pose>3.921240 -20.894560 41.072517 0.000000 1.124084 1.555420</pose>
+        <pose>0.471107 3.112576 9.086079 0.000000 1.221795 -1.567757</pose>
         <view_controller>orbit</view_controller>
       </camera>
     </gui>

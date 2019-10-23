@@ -15,7 +15,7 @@
     name="spawn_model"
     pkg="gazebo_ros"
     type="spawn_model"
-    args="-param robot_description -urdf -model r1_sim -x -8.251 -y 10.77"
+    args="-param robot_description -urdf -model r1_sim -x -8.457 -y 10.979"
     output="screen" />
   <node
     name="fake_joint_calibration"
