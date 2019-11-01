@@ -1,0 +1,10 @@
+<launch>
+  <node name="mpcc_controller" pkg="ltvcmpc_controller" type="mpcc_control_node" args="-impl">
+  	<remap from="/mpcc_controller/cmd_vel" to="/mavros/setpoint_velocity/cmd_vel_unstamped"/>
+  	<remap from="/mpcc_controller/odom" to="/rover/odom"/>
+  </node>
+  <node name="data_plotter" pkg="ltvcmpc_plotter" type="data_plotter">
+    <remap from="/data_plotter/cmd_vel" to="/mavros/setpoint_velocity/cmd_vel_unstamped"/>
+    <remap from="/data_plotter/odom" to="/rover/odom"/>
+  </node>
+</launch>

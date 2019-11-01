@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import rospy
 import time
-from geometry_msgs.msg import Pose
+from nav_msgs.msg import Odometry
 
 def main():
 
@@ -19,7 +19,7 @@ def main():
     rospy.init_node('get_states')
     
     # Define the publisher
-    pub = rospy.Publisher('rover/states', Pose, queue_size=1)
+    pub = rospy.Publisher('rover/odom', Odometry, queue_size=1)
     rate = rospy.Rate(10) # sample rate
     
     while not rospy.is_shutdown():
@@ -36,16 +36,16 @@ def main():
         rospy.loginfo('Latency: {} ms'.format(latency))
         
         # Format rover states in Pose message type to publish
-        pose = Pose()
-        pose.position.x = float(message[0])
-        pose.position.y = float(message[1])
-        pose.position.z = 0.
-        pose.orientation.x = 0.
-        pose.orientation.y = 0.
-        pose.orientation.z = np.sin(np.deg2rad(float(message[2])/2))
-        pose.orientation.w = np.cos(np.deg2rad(float(message[2])/2))
+        odom = Odometry()
+        odom.pose.pose.position.x = float(message[0])
+        odom.pose.pose.position.y = float(message[1])
+        odom.pose.pose.position.z = 0.
+        odom.pose.pose.orientation.x = 0.
+        odom.pose.pose.orientation.y = 0.
+        odom.pose.pose.orientation.z = np.sin(np.deg2rad(float(message[2])/2))
+        odom.pose.pose.orientation.w = np.cos(np.deg2rad(float(message[2])/2))
         
-        pub.publish(pose) # publishing rover states
+        pub.publish(odom) # publishing rover states
         rate.sleep()
 
     server.close()
