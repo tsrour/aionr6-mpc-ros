@@ -29,6 +29,7 @@ class dataPlotter(object):
     def paramCallback(self, msg):
         self._ltvcmpc_params = str(msg)
         self._mode = msg.mode
+        self._Ts = msg.Ts
 
         # Obtain track elements by calling service 
         rospy.wait_for_service('/get_track')
@@ -87,8 +88,15 @@ def main():
 
     rospy.spin() # runs forever
 
+    try:
+        data_plotter._ltvcmpc_params
+    except AttributeError:
+        return
     now = datetime.now()
     date_time = now.strftime("%d-%m-%Y, %H:%M:%S")
+
+    history_time_odom = [(i*data_plotter._Ts) for i in data_plotter._history_time_odom]
+    history_time_vel = [(i*data_plotter._Ts) for i in data_plotter._history_time_vel]
 
     plot_folder_path = "../YP2_capstone_ws/src/ltvcmpc_plotter/plots/" + data_plotter._mode + "/" + date_time
 
@@ -112,29 +120,29 @@ def main():
     fig2 = plt.figure(figsize=[9.6, 7.2])
     fig2.subplots_adjust(top=0.9, hspace = 0.4)
     ax1 = fig2.add_subplot(221)
-    ax1.scatter(data_plotter._history_time_odom, data_plotter._history_x, marker=".")
+    ax1.scatter(history_time_odom, data_plotter._history_x, marker=".")
     ax1.title.set_text('Rover x Position')
     ax1.set_xlabel('Time (s)')
     ax1.set_ylabel('x (m)')
     ax2 = fig2.add_subplot(222)
-    ax2.scatter(data_plotter._history_time_odom, data_plotter._history_y, marker=".")
+    ax2.scatter(history_time_odom, data_plotter._history_y, marker=".")
     ax2.title.set_text('Rover y Position')
     ax2.set_xlabel('Time (s)')
     ax2.set_ylabel('y (m)')
     ax3 = fig2.add_subplot(223)
-    ax3.scatter(data_plotter._history_time_odom, data_plotter._history_theta, marker=".")
+    ax3.scatter(history_time_odom, data_plotter._history_theta, marker=".")
     ax3.title.set_text('Rover Orientation')
     ax3.set_xlabel('Time (s)')
     ax3.set_ylabel('theta (rad)')
     fig3 = plt.figure(figsize=[6.4, 7.2])
     fig3.subplots_adjust(top=0.9, hspace = 0.4)
     ax4 = fig3.add_subplot(211)
-    ax4.scatter(data_plotter._history_time_vel, data_plotter._history_v, marker=".")
+    ax4.scatter(history_time_vel, data_plotter._history_v, marker=".")
     ax4.title.set_text('Rover Linear Velocity')
     ax4.set_xlabel('Time (s)')
     ax4.set_ylabel('linear velocity (m/s)')
     ax5 = fig3.add_subplot(212)
-    ax5.scatter(data_plotter._history_time_vel, data_plotter._history_omega, marker=".")
+    ax5.scatter(history_time_vel, data_plotter._history_omega, marker=".")
     ax5.title.set_text('Rover Angular Velocity')
     ax5.set_xlabel('Time (s)')
     ax5.set_ylabel('angular velocity (rad/s)')
