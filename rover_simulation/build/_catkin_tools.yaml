@@ -1,6 +1,0 @@
-devel_space: /home/apsync/catkin_ws/src/location_monitor/devel
-install: false
-install_space: /home/apsync/catkin_ws/src/location_monitor/install
-profile: default
-source_space: /home/apsync/catkin_ws/src/location_monitor/src
-workspace: /home/apsync/catkin_ws/src/location_monitor

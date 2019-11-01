@@ -2,7 +2,14 @@
   <node name="mpcc_controller" pkg="ltvcmpc_controller" type="mpcc_control_node" args="-sim">
   	<remap from="/mpcc_controller/cmd_vel" to="/cmd_vel_mux/input/teleop"/>
   </node>
-  <node name="data_plotter" pkg="ltvcmpc_controller" type="data_plotter">
-    <remap from="/cmd_vel_mux/input/teleop" to="/data_plotter/cmd_vel"/>
+  <node name="data_plotter" pkg="ltvcmpc_plotter" type="data_plotter">
+    <remap from="/data_plotter/cmd_vel" to="/cmd_vel_mux/input/teleop"/>
   </node>
+	<node
+		name="vel_init"
+		pkg="rostopic"
+		type="rostopic"
+		args="pub /cmd_vel_mux/input/teleop geometry_msgs/Twist 
+		'{linear: {x: 0.0, y: 0.0, z: 0.0}, 
+		angular: {x: 0.0, y: 0.0, z: 0.0}}' " />
 </launch>
