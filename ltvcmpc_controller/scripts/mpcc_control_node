@@ -202,7 +202,7 @@ def main():
         'v_max': 1.0,
         'gamma_max': 1.0,
         'theta_max': np.inf,
-        'beta_max': 20
+        'beta_max': 10
         }
 
     # Initial states/inputs
@@ -235,7 +235,7 @@ def main():
     rospy.init_node('MPC_Controller')
     
     # Define the publishers
-    vel_pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist, queue_size=1)
+    vel_pub = rospy.Publisher('~cmd_vel', Twist, queue_size=1)
     param_pub = rospy.Publisher('/rover/ltvcmpc_params', Params, queue_size=1)
     
     # Initialize controller class
@@ -257,7 +257,7 @@ def main():
 
     # subscribe to the /odom topic and run callback function every time new state measurement
     # is available
-    rospy.Subscriber("/odom", Odometry, controller.callback)
+    rospy.Subscriber("~odom", Odometry, controller.callback)
     print(controller._xi_curr)
     rospy.spin() # runs forever
 

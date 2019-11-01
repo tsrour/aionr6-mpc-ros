@@ -16,119 +16,135 @@ import os
 from datetime import datetime
 from ltvcmpc_msgs.srv import *
 
-history_x = []
-history_y = []
-history_v = []
-history_theta = []
-history_omega = []
-history_time_vel = []
-history_time_odom = []
+class dataPlotter(object):
+    def __init__(self):
+        self._history_x = []
+        self._history_y = []
+        self._history_v = []
+        self._history_theta = []
+        self._history_omega = []
+        self._history_time_vel = []
+        self._history_time_odom = []
 
-def paramCallback(msg):
-    #param_filname = 'YP2_capstone_ws/src/rover_simulation/plots/mpcc_params.txt'
-    global mpcc_params 
-    mpcc_params = str(msg)
+    def paramCallback(self, msg):
+        self._ltvcmpc_params = str(msg)
+        self._mode = msg.mode
 
-    mode = msg.mode
+        # Obtain track elements by calling service 
+        rospy.wait_for_service('/get_track')
+        try:
+            get_track = rospy.ServiceProxy('/get_track', GetTrack)
+            # (inner, outer, path, center) = get_track(mode)
+            track_output = get_track(self._mode)
+            inner = np.vstack([np.array(track_output.x_inner), np.array(track_output.y_inner)])
+            outer = np.vstack([np.array(track_output.x_outer), np.array(track_output.y_outer)])
+            path = np.vstack([np.array(track_output.x_path), np.array(track_output.y_path)])
+            center = np.vstack([np.array(track_output.x_center), np.array(track_output.y_center)])
+        except rospy.ServiceException:
+            rospy.loginfo("Service call failed")
 
-    # Obtain track elements by calling service 
-    rospy.wait_for_service('/get_track')
-    try:
-        get_track = rospy.ServiceProxy('/get_track', GetTrack)
-        # (inner, outer, path, center) = get_track(mode)
-        track_output = get_track(mode)
-        inner = np.vstack([np.array(track_output.x_inner), np.array(track_output.y_inner)])
-        outer = np.vstack([np.array(track_output.x_outer), np.array(track_output.y_outer)])
-        path = np.vstack([np.array(track_output.x_path), np.array(track_output.y_path)])
-        center = np.vstack([np.array(track_output.x_center), np.array(track_output.y_center)])
-    except rospy.ServiceException:
-        rospy.loginfo("Service call failed")
+        self._track_points = {'inner':inner, 'outer':outer, 'path':path, 'center':center}
 
-    global track_points
-
-    track_points = {'inner':inner, 'outer':outer, 'path':path, 'center':center}
-
-def velCallback(msg):
-    if len(history_time_vel) == len(history_time_odom):
-        v_cmd = msg.linear.x
-        omega_cmd = msg.angular.z
-        history_v.append(v_cmd)
-        history_omega.append(omega_cmd)
-        iteration = len(history_time_vel)
-        history_time_vel.append(iteration+1)
-	
-def odomCallback(msg):
-    if len(history_time_vel) == len(history_time_odom)+1:
-        # Get the x, y and theta measurements (states)
-        x_measure = msg.pose.pose.position.x
-        y_measure = msg.pose.pose.position.y
-        z_measure = msg.pose.pose.orientation.z
-        w_measure = msg.pose.pose.orientation.w
-        theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
-            
-        history_x.append(x_measure)
-        history_y.append(y_measure)
-        history_theta.append(theta_measure)
-        iteration = len(history_time_odom)
-        history_time_odom.append(iteration+1)
+    def velCallback(self, msg):
+        if len(self._history_time_vel) == len(self._history_time_odom):
+            v_cmd = msg.linear.x
+            omega_cmd = msg.angular.z
+            self._history_v.append(v_cmd)
+            self._history_omega.append(omega_cmd)
+            iteration = len(self._history_time_vel)
+            self._history_time_vel.append(iteration+1)
+    	
+    def odomCallback(self, msg):
+        if len(self._history_time_vel) == len(self._history_time_odom)+1:
+            # Get the x, y and theta measurements (states)
+            x_measure = msg.pose.pose.position.x
+            y_measure = msg.pose.pose.position.y
+            z_measure = msg.pose.pose.orientation.z
+            w_measure = msg.pose.pose.orientation.w
+            theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
+                
+            self._history_x.append(x_measure)
+            self._history_y.append(y_measure)
+            self._history_theta.append(theta_measure)
+            iteration = len(self._history_time_odom)
+            self._history_time_odom.append(iteration+1)
     
 def main():
+
+    data_plotter = dataPlotter()
 
     # Initialize the ROS node
     rospy.init_node('Data_Plotter')
 
     # subscribe to the /odom topic and run callback function
-    rospy.Subscriber("/odom", Odometry, odomCallback) 
+    rospy.Subscriber("~odom", Odometry, data_plotter.odomCallback) 
     
     # subscribe to the /odom topic and run callback function
-    rospy.Subscriber("~cmd_vel", Twist, velCallback) 
+    rospy.Subscriber("~cmd_vel", Twist, data_plotter.velCallback) 
+
 	# subscribe to the /odom topic and run callback function
-    rospy.Subscriber("/rover/ltvcmpc_params", Params, paramCallback)
+    rospy.Subscriber("/rover/ltvcmpc_params", Params, data_plotter.paramCallback)
 
     rospy.spin() # runs forever
 
     now = datetime.now()
     date_time = now.strftime("%d-%m-%Y, %H:%M:%S")
 
-    plot_folder_path = "../YP2_capstone_ws/src/ltvcmpc_plotter/plots/" + date_time
+    plot_folder_path = "../YP2_capstone_ws/src/ltvcmpc_plotter/plots/" + data_plotter._mode + "/" + date_time
 
     os.mkdir(plot_folder_path)
 
-    fig1 = plt.figure()
+    fig1 = plt.figure(figsize=[6.4, 5.2])
     ax = fig1.add_subplot(111)
-    ax.plot(track_points['outer'][0,:], track_points['outer'][1,:], 'k')
-    ax.plot(track_points['inner'][0,:], track_points['inner'][1,:], 'k')
+    ax.plot(data_plotter._track_points['outer'][0,:], data_plotter._track_points['outer'][1,:], 'k')
+    ax.plot(data_plotter._track_points['path'][0,:], data_plotter._track_points['path'][1,:], 'b--', label='planned path')
+    ax.plot(data_plotter._track_points['inner'][0,:], data_plotter._track_points['inner'][1,:], 'k')
     try:
-        im = ax.scatter(history_x, history_y, c=history_v, cmap = 'RdYlGn')
+        im = ax.scatter(data_plotter._history_x, data_plotter._history_y, c=data_plotter._history_v, cmap = 'coolwarm', label='followed path')
     except ValueError:
-        im = ax.scatter(history_x, history_y, c=history_v[:-1], cmap = 'RdYlGn')
+        im = ax.scatter(data_plotter._history_x, data_plotter._history_y, c=data_plotter._history_v[:-1], cmap = 'coolwarm', label='followed path')
     cbar = fig1.colorbar(im, ax=ax)
     cbar.set_label('Velocity', rotation=0)
     ax.title.set_text('Path-Velocity Colormap')
-    fig2 = plt.figure()
+    ax.set_xlabel('x (m)')
+    ax.set_ylabel('y (m)')
+    ax.legend()
+    fig2 = plt.figure(figsize=[9.6, 7.2])
+    fig2.subplots_adjust(top=0.9, hspace = 0.4)
     ax1 = fig2.add_subplot(221)
-    ax1.scatter(history_time_odom, history_x)
+    ax1.scatter(data_plotter._history_time_odom, data_plotter._history_x, marker=".")
     ax1.title.set_text('Rover x Position')
+    ax1.set_xlabel('Time (s)')
+    ax1.set_ylabel('x (m)')
     ax2 = fig2.add_subplot(222)
-    ax2.scatter(history_time_odom, history_y)
+    ax2.scatter(data_plotter._history_time_odom, data_plotter._history_y, marker=".")
     ax2.title.set_text('Rover y Position')
+    ax2.set_xlabel('Time (s)')
+    ax2.set_ylabel('y (m)')
     ax3 = fig2.add_subplot(223)
-    ax3.scatter(history_time_odom, history_theta)
+    ax3.scatter(data_plotter._history_time_odom, data_plotter._history_theta, marker=".")
     ax3.title.set_text('Rover Orientation')
-    fig3 = plt.figure()
+    ax3.set_xlabel('Time (s)')
+    ax3.set_ylabel('theta (rad)')
+    fig3 = plt.figure(figsize=[6.4, 7.2])
+    fig3.subplots_adjust(top=0.9, hspace = 0.4)
     ax4 = fig3.add_subplot(211)
-    ax4.scatter(history_time_vel, history_v)
+    ax4.scatter(data_plotter._history_time_vel, data_plotter._history_v, marker=".")
     ax4.title.set_text('Rover Linear Velocity')
+    ax4.set_xlabel('Time (s)')
+    ax4.set_ylabel('linear velocity (m/s)')
     ax5 = fig3.add_subplot(212)
-    ax5.scatter(history_time_vel, history_omega)
+    ax5.scatter(data_plotter._history_time_vel, data_plotter._history_omega, marker=".")
     ax5.title.set_text('Rover Angular Velocity')
+    ax5.set_xlabel('Time (s)')
+    ax5.set_ylabel('angular velocity (rad/s)')
     fig1.savefig(plot_folder_path + "/colormap.png")
     fig2.savefig(plot_folder_path + "/states.png")
     fig3.savefig(plot_folder_path + "/inputs.png")
     
-    param_filname = plot_folder_path + "/mpcc_params.txt"
+    param_filname = plot_folder_path + "/ltvcmpc_params.txt"
     param_file = open(param_filname, "w+")
-    param_file.write(mpcc_params)
+    param_file.write(data_plotter._ltvcmpc_params)
 if __name__ == '__main__':
     main()
         

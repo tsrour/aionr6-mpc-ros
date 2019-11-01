@@ -116,7 +116,7 @@ class pidInitializer(object):
         self._pid_stage = 'move'
 
         # subscribe to the odom topic to receive measurements to PID
-        sub = rospy.Subscriber("/odom", Odometry, self.pos_callback)
+        sub = rospy.Subscriber("~odom", Odometry, self.pos_callback)
         while True:
             if self._pid_stage == 'complete':
                 sub.unregister()
@@ -126,7 +126,7 @@ class pidInitializer(object):
 
 def init_position_server():
     rospy.init_node('init_position_server')
-    vel_pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist, queue_size=1)
+    vel_pub = rospy.Publisher('~cmd_vel', Twist, queue_size=1)
     initializer = pidInitializer(vel_pub)
 
     s = rospy.Service('init_position', InitPosition, initializer.handle_init_position)

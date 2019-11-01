@@ -1,9 +1,11 @@
 <launch>
   <node name="mpcc_controller" pkg="ltvcmpc_controller" type="mpcc_control_node" args="-sim">
   	<remap from="/mpcc_controller/cmd_vel" to="/cmd_vel_mux/input/teleop"/>
+  	<remap from="/mpcc_controller/odom" to="/odom"/>
   </node>
   <node name="data_plotter" pkg="ltvcmpc_plotter" type="data_plotter">
     <remap from="/data_plotter/cmd_vel" to="/cmd_vel_mux/input/teleop"/>
+    <remap from="/data_plotter/odom" to="/odom"/>
   </node>
 	<node
 		name="vel_init"
