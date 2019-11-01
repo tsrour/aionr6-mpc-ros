@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="2">
+
+  <name>ltvcmpc_services</name>
+  <version>0.0.0</version>
+  <description>Services for LTV Contouring Controller</description>
+  <maintainer email="tony.srour95@gmail.com">Tony Srour</maintainer>
+  <license>BSD</license>
+
+  <author email="tony.srour95@gmail.com">Tony Srour</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+</package>

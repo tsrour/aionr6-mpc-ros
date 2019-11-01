@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+
+from ltvcmpc_msgs.srv import GetTrack,GetTrackResponse
+import rospy
+import math
+import socket
+import scipy.io
+import numpy as np
+
+def get_track():
+    serverIp = '10.42.0.239'
+    tcpPort = 9998
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    
+    # Wait till server goes online
+    while True:
+      try:
+          server.connect((serverIp, tcpPort))
+          break
+      except socket.error:
+          time.sleep(2)
+    
+    # Get track from server
+    track = {}
+    track_elements = ['inner', 'outer', 'path']
+    track_index = 0
+    while track_index < 3:
+        server.send(b'ready')
+        msg = ''
+        while True:
+            try:
+                pkt_length = int(server.recv(3))
+            except ValueError:
+                print("error")
+                server.send(b'resend')
+                msg = ''
+                break
+            print(pkt_length)
+            if pkt_length == 0:
+                break
+            pkt = server.recv(pkt_length)
+            pkt = pkt.decode("utf-8")
+            msg = msg + pkt
+        if msg == '':
+            track_index = 0
+            track = {}
+            # Wait till server reconnects
+            server.close()
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            while True:
+                try:
+                    server.connect((serverIp, tcpPort))
+                    break
+                except socket.error:
+                    time.sleep(2)
+            # restart the sending process (loop)
+            continue
+        msg = msg.split(';')
+        data = []
+        for dim in msg:
+            data.append(list(map(float,dim.split(','))))
+        time.sleep(2)
+        # data = np.array(data)
+        track[track_elements[track_index]] = data
+        track_index+=1
+    track['center'] = 0.5*(track['inner']+track['outer'])
+    return track
+    
+def load_track(filename):
+    """ Load positions for inner and outer track boundaries and path, 
+    calculate track center, return in dictionary """
+    mat = scipy.io.loadmat(filename)
+    center = 0.5*(mat['inner'] + mat['outer'])
+    track = {
+            'inner': 10*mat['inner'],
+            'outer': 10*mat['outer'],
+            'path': 10*mat['path'],
+            'center': 10*center
+            }
+    return track
+
+def handle_get_track(req):
+    if req.mode == "sim" or req.mode == "simulation":
+        filename = '../YP2_capstone_ws/src/ltvcmpc_services/scripts/data/optimal_path_unicycle.mat'
+        track = load_track(filename)
+        inner = (track['inner']).tolist()
+        outer = (track['outer']).tolist()
+        path = (track['path']).tolist()
+        center = (track['center']).tolist()
+    else:
+        track = get_track()
+        inner = track['inner']
+        outer = track['outer']
+        path = track['path']
+        center = track['center']
+
+    return GetTrackResponse(inner[0],inner[1],outer[0],outer[1],path[0],path[1],center[0],center[1])
+    
+
+def get_track_server():
+    rospy.init_node('track_server')
+    s = rospy.Service('get_track', GetTrack, handle_get_track)
+    rospy.spin()
+
+if __name__ == "__main__":
+    get_track_server()

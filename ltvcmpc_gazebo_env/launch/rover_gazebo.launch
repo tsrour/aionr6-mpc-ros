@@ -1,0 +1,41 @@
+<launch>
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find ltvcmpc_gazebo_env)/worlds/aionr1.world"/>
+  </include>
+  
+  <node
+    name="tf_footprint_base"
+    pkg="tf"
+    type="static_transform_publisher"
+    args="0 0 0 0 0 0 base_link base_footprint 40" />
+  <param
+    name="robot_description"
+    command="$(find xacro)/xacro '$(find aion_r1_description)/urdf/r1_sim.urdf.xacro' --inorder" />
+  <node
+    name="spawn_model"
+    pkg="gazebo_ros"
+    type="spawn_model"
+    args="-param robot_description -urdf -model r1_sim -x -8.457 -y 10.979"
+    output="screen" />
+  <node
+    name="fake_joint_calibration"
+    pkg="rostopic"
+    type="rostopic"
+    args="pub /calibrated std_msgs/Bool true" />
+  <node
+    name="joint_state_publisher"
+    pkg="joint_state_publisher"
+    type="joint_state_publisher" />
+  <node
+    name="robot_state_publisher"
+    pkg="robot_state_publisher"
+    type="robot_state_publisher" />
+  <!--node
+    name="init_position_server"
+    pkg="ltvcmpc_services"
+    type="init_position_server"/-->
+    <node
+    name="track_server"
+    pkg="ltvcmpc_services"
+    type="track_server" />
+</launch>

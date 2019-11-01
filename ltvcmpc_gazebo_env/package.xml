@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="2">
+
+  <name>ltvcmpc_gazebo_env</name>
+  <version>0.0.0</version>
+  <description>Environment Setup Package for LTV Gazebo Simulation</description>
+  <maintainer email="tony.srour95@gmail.com">Tony Srour</maintainer>
+  <license>BSD</license>
+
+  <author email="tony.srour95@gmail.com">Tony Srour</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+</package>

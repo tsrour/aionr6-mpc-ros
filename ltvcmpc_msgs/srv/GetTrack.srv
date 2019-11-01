@@ -1,0 +1,10 @@
+string mode
+---
+float32[] x_inner
+float32[] y_inner
+float32[] x_outer
+float32[] y_outer
+float32[] x_path
+float32[] y_path
+float32[] x_center
+float32[] y_center

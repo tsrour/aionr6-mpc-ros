@@ -1,0 +1,136 @@
+#!/usr/bin/env python
+
+from ltvcmpc_msgs.srv import InitPosition,InitPositionResponse
+import rospy
+import math
+import numpy as np
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
+
+class pidInitializer(object):
+    def __init__(self, vel_pub):
+        self._vel_pub = vel_pub
+
+        # Define reference values
+        self._x_ref = 0.
+        self._y_ref = 0.
+        self._theta_ref = 0.
+
+        # PID gains
+        self._kp_theta = 3
+        self._kp_pos = 2
+        self._ki_theta = 2
+        self._ki_pos = 2
+        self._kd_theta = 0.01
+        self._kd_pos = 0.01
+
+        # PID values initialization
+        self._theta_derr = 0
+        self._theta_dderr = 0
+        self._pos_derr = 0
+        self._pos_dderr = 0
+
+        self._pid_stage = 'move'
+
+    def pos_callback(self, msg):
+
+        # Get the x, y and theta measurements
+        x_measure = msg.pose.pose.position.x
+        y_measure = msg.pose.pose.position.y
+        z_measure = msg.pose.pose.orientation.z
+        w_measure = msg.pose.pose.orientation.w
+        theta_measure = 2*np.arcsin(abs(z_measure))*np.sign(z_measure)*np.sign(w_measure)
+
+        # stop PID loop if complete
+        if self._pid_stage == 'complete':
+        #    rospy.loginfo('Complete')
+            pos_err = 0
+            theta_err = 0
+            vel_dir = 0
+        #    rospy.signal_shutdown('PID Complete')
+
+        # Define errors based on what stage the PID is in
+        if self._pid_stage == 'move':
+            x_err = self._x_ref - x_measure
+            y_err = self._y_ref - y_measure
+            pos_err = math.sqrt(x_err**2+y_err**2)
+            theta_err = math.atan2(y_err, x_err) - theta_measure
+            if abs(theta_err) > math.pi: # make sure the circle wraps around 
+                theta_err = np.sign(theta_err)*(2*math.pi - abs(theta_err))
+
+            if pos_err < 0.05: # close enough to position, rotate to desired angle
+                self._pid_stage = 'rotate'
+
+            if abs(theta_err) > math.pi/2: # better to move backwards towards setpoint
+                theta_err = np.sign(theta_err)*(math.pi - abs(theta_err))
+                vel_dir = -1.0
+            else:
+                vel_dir = 1
+
+            if (abs(theta_err) > 0.05): # rotate before moving towards setpoint
+                vel_dir = 0
+
+        if self._pid_stage == 'rotate':
+            vel_dir = 0
+            pos_err = 0
+            theta_err = self._theta_ref - theta_measure
+            if abs(theta_err) < 0.05:
+                self._pid_stage = 'complete'
+
+        # Define the individual error values of each PID element
+        pos_P_err = pos_err - self._pos_derr
+        pos_I_err = pos_err
+        pos_D_err = self._pos_derr - self._pos_dderr
+        theta_P_err = theta_err - self._theta_derr
+        theta_I_err = theta_err
+        theta_D_err = self._theta_derr - self._theta_dderr
+
+        # Calculate input values 
+        omega_input = self._kp_theta*theta_P_err + self._ki_theta*theta_I_err + self._kd_theta*theta_D_err
+        v_input = vel_dir*(self._kp_pos*pos_P_err + self._ki_pos*pos_I_err + self._kd_pos*pos_D_err)
+
+        # Saturate inputs to avoid moving too fast
+        omega_input = min(omega_input, 0.7)
+        omega_input = max(omega_input, -0.7)
+        v_input = min(v_input, 0.5)
+        v_input = max(v_input, -0.5)
+        rospy.loginfo('Inputs: ({}, {})'.format(v_input, omega_input))
+
+        # Apply control input to rover
+        twist = Twist()
+        twist.linear.x = v_input
+        twist.angular.z = omega_input
+
+        self._vel_pub.publish(twist)
+        self._theta_dderr = self._theta_derr
+        self._theta_derr = theta_err
+        self._pos_dderr = self._pos_derr
+        self._pos_derr = pos_err
+
+    def handle_init_position(self, req):
+        self._x_ref = req.model_state.pose.position.x
+        self._y_ref = req.model_state.pose.position.y
+        z = req.model_state.pose.orientation.z
+        w = req.model_state.pose.orientation.w
+        self._theta_ref = 2*np.arcsin(abs(z))*np.sign(z)*np.sign(w)
+        self._pid_stage = 'move'
+
+        # subscribe to the odom topic to receive measurements to PID
+        sub = rospy.Subscriber("/odom", Odometry, self.pos_callback)
+        while True:
+            if self._pid_stage == 'complete':
+                sub.unregister()
+                return InitPositionResponse(True)
+            rospy.sleep(1.)
+    
+
+def init_position_server():
+    rospy.init_node('init_position_server')
+    vel_pub = rospy.Publisher('/cmd_vel_mux/input/teleop', Twist, queue_size=1)
+    initializer = pidInitializer(vel_pub)
+
+    s = rospy.Service('init_position', InitPosition, initializer.handle_init_position)
+    rospy.spin()
+
+if __name__ == "__main__":
+    init_position_server()
